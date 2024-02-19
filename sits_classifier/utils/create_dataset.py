@@ -13,28 +13,21 @@ LABEL_PATH = os.path.join(PATH, LABEL_CSV)
 
 def numpy_to_tensor(x_data: np.ndarray, y_data: np.ndarray) -> tuple[Tensor, Tensor]:
     """Transfer numpy.ndarray to torch.tensor, and necessary pre-processing like embedding or reshape"""
-    y_data = y_data.reshape(
-        -1)  # This reshapes the y_data numpy array from a 2-dimensional array with shape (n, 1) to a 1-dimensional
+    y_data = y_data.reshape(-1)  # This reshapes the y_data numpy array from a 2-dimensional array with shape (n, 1) to a 1-dimensional
     # array with shape (n, ).
     x_set = torch.from_numpy(x_data)
     y_set = torch.from_numpy(y_data)
     # standardization:
-    sz, seq, num_bands = x_set.size(0), x_set.size(1), x_set.size(
-        2)  # retrieve amount of samples (?) and sequence length from tensor object
-    x_set = x_set.view(-1,
-                       num_bands)  # use view method to reshape, first arg size of dimension being inferred, arg2 is
+    sz, seq, num_bands = x_set.size(0), x_set.size(1), x_set.size(2)  # retrieve amount of samples, sequence length and num_bands from tensor object
+    x_set = x_set.view(-1,num_bands)  # use view method to reshape, first arg size of dimension being inferred, arg2 is
     # number of columns in the tensor
     # need to reshape in order to apply batch_norm
     # see Annex 1
-    batch_norm = nn.BatchNorm1d(
-        num_bands)  # Create a BatchNorm1d layer with `num_bands` as the number of input features.
-    x_set: Tensor = batch_norm(
-        x_set)  # standardization is used to improve convergence, should lead to values between 0 and 1
-    x_set = x_set.view(sz, seq,
-                       num_bands).detach()  # sz is the amount of samples, seq is the sequence length, and num_bands
-    # is the number of features The `.detach()` method is used here to create a new tensor that is detached from the
-    # computation graph. This is done to prevent gradients from flowing backward through this tensor, as it is only
-    # used for inference, not for training.
+    batch_norm = nn.BatchNorm1d(num_bands)  # Create a BatchNorm1d layer with `num_bands` as the number of input features.
+    x_set: Tensor = batch_norm(x_set)  # standardization is used to improve convergence, should lead to values between 0 and 1
+    x_set = x_set.view(sz, seq,num_bands).detach()  # sz is the amount of samples, seq is the sequence length, and num_bands is the number of features
+    # The `.detach()` method is necessary here to create a new tensor that is "detached from the computation graph" as we only want to apply this normalization once
+    # .detach prevents gradients from flowing backward through a tensor.
     return x_set, y_set
 
 

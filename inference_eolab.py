@@ -1,4 +1,3 @@
-import torch.utils.data as Data # For dataloader class
 import os # for general operating system functionality
 import glob # for retrieving files using strings/regex
 import re # for regex
@@ -7,39 +6,26 @@ import geopandas as gpd # for reading shapefiles
 import numpy as np
 import datetime # for benchmarking
 import torch # for loading the model and actual inference
+from torch import nn
 import rioxarray as rxr # for raster clipping
-import multiprocessing # for parallelization
 from shapely.geometry import mapping # for clipping
 from rasterio.transform import from_origin # for assigning an origin to the created map
 import pandas as pd
 
-def predict(data_for_prediction_loader):
-    model_pkl.eval() # set model to eval mode to avoid dropout layer
-    with torch.no_grad(): # do not track gradients during forward pass to speed up
-        for (inputs) in data_for_prediction_loader:
-            inputs = inputs.to(device)  # put the data in gpu
-            output_probabilities = model_pkl(inputs)  # prediction
-            _, predicted_class = torch.max(output_probabilities,1)  # retrieving the class with the highest probability after softmax
+def predict(pixel): # data_for_prediction should be a tensor of a single pixel
+    model_pkl.eval()  # set model to eval mode to avoid dropout layer
+    pixel.to(device)
+    with torch.no_grad():  # do not track gradients during forward pass to speed up
+        output_probabilities = model_pkl(pixel)  # prediction
+        _, predicted_class = torch.max(output_probabilities,1)  # retrieving the class with the highest probability after softmax
     return predicted_class
-# the underscore means that the first entry of the torch.max function is discarded and only the second written into predicted
-
-# GPT:
-def predict2(data_for_prediction_loader):
-    model_pkl.eval()  # Set model to eval mode to avoid dropout layer
-    all_predicted_classes = []
-    with torch.no_grad():  # Do not track gradients during forward pass to speed up
-        for inputs in data_for_prediction_loader:
-            inputs = inputs.to(device)  # Put the data in GPU
-            output_probabilities = model_pkl(inputs)  # Prediction
-            _, predicted_class = torch.max(output_probabilities, 1)  # Retrieving the class with the highest probability after softmax
-            all_predicted_classes.append(predicted_class)
-    return torch.cat(all_predicted_classes, dim=0)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
+All = False
+GROMIT = True
+EOLAB = False
 
-REMOTE = False
-
-if REMOTE == False:
+if All == True:
     print("dall'inizio")
     model_pkl = torch.load('/point_storage/data/Transformer_1.pkl', map_location=torch.device('cpu'))  # loading the trained model
     raster_paths = []
@@ -85,60 +71,56 @@ if REMOTE == False:
         except:
             print('not working')
             break
-
-else:
-    print('running local')
-    # model_pkl = torch.load('/home/j/data/Transformer_1.pkl', map_location=torch.device('cpu'))  # loading the trained model
-    # data_for_prediction = torch.load('/home/j/data/datacube_doy.pt')
-    # clipped_datacube = np.load('/home/j/data/landshut_cropped_dc.npy')
-    # DOY = pandas.read_csv('/home/j/data/doy_pixel_subset.csv', sep = '\t', header = None)
+if GROMIT == True:
+    print('running on gromit')
+    model_pkl = torch.load('/home/j/data/outputs/models/Transformer_2.pkl', map_location=torch.device(device))
+    clipped_datacube = np.load('/home/j/data/landshut_cropped_dc.npy')
+    DOY = pd.read_csv('/home/j/data/doy_pixel_subset.csv', sep = '\t', header = None)
+if EOLAB == True:
     DOY = pd.read_csv('/point_storage/data/doy_pixel_subset.csv', sep='\t', header=None)
     clipped_datacube = np.load('/point_storage/data/landshut_cropped_dc.npy')
-    if torch.cuda.is_available() == False:
-        model_pkl = torch.load('/point_storage/data/Transformer_1.pkl', map_location=torch.device('cpu'))
+    model_pkl = torch.load('/point_storage/data/Transformer_1.pkl', map_location=device)
     crop_shape = gpd.read_file('/point_storage/landshut_minibatch.gpkg')
 
 print('DOY, model and datacube loaded')
 
 DOY = np.array(DOY)
 datacube_np = np.array(clipped_datacube, ndmin = 4) # this is now a clipped datacube for the first minitile, fixing it to be 4 dimensions
-# Reshape doy to have a new axis
-doy_reshaped = DOY.reshape((329, 1, 1, 1))
-
-# Repeat the doy values along the third and fourth dimensions to match datacube_np
-doy_reshaped = np.repeat(doy_reshaped, 500, axis=2)
+doy_reshaped = DOY.reshape((329, 1, 1, 1)) # Reshape doy to have a new axis
+doy_reshaped = np.repeat(doy_reshaped, 500, axis=2) # Repeat the doy values along the third and fourth dimensions to match datacube_np
 doy_reshaped = np.repeat(doy_reshaped, 500, axis=3)
-# Concatenate along the second axis
-datacube_np = np.concatenate((datacube_np, doy_reshaped), axis=1)
+datacube_np = np.concatenate((datacube_np, doy_reshaped), axis=1) # Concatenate along the second axis
+# datacube_np.shape #for inspection if necessary
+# rearrange npy array
+datacube_rearranged = np.transpose(datacube_np, (2, 3, 0, 1))
+num_bands = datacube_rearranged.shape[3] # retrieving numer of bands
+batch_norm = nn.BatchNorm1d(num_bands)  # Create a BatchNorm1d layer with `num_bands` as the number of input features.
+x = datacube_rearranged.shape[0]-1
+y = datacube_rearranged.shape[1]-1
+normalized_inference_datacube = np.zeros((x, y, 329, 11))
+for row in range(x): # assuming, data_for_prediction is a x*y raster
+    print(row)
+    print(datetime.datetime.now())
+    for col in range(y):
+        pixel = datacube_rearranged[row, col, :,:] # get the pixel timeseries
+        pixel[pixel == -9999] = np.nan # FORCE NA value is -9999 but the model expects np.nan
+        pixel_torch16 = torch.tensor(pixel)  # turn the numpy array into a pytorch tensor, the result is in int16..
+        pixel_torch32 = pixel_torch16.to(torch.float32) # ...so we need to transfer it to float32 so that the model can use it as input
+        pixel_normalized = batch_norm(pixel_torch32).detach().numpy()# run the normalization on the tensor. detach because i don't want gradients from batch_norm. #WTF why zack to numpy?
+        normalized_inference_datacube[row, col, :] = pixel_normalized
+        normalized_inference_datacube[row:row + 329, col:col + 11, :] = pixel_normalized
 
-# datacube_np.shape
-datacube_torch16 = torch.tensor(datacube_np) # turn the numpy array into a pytorch tensor, the result is in int16..
-datacube_torch32 = datacube_torch16.to(torch.float32) # ...so we need to transfer it to float32 so that the model can use it as input
-# datacube_torch32.shape # torch.Size([320, 10, 500, 500])
-data_for_prediction = datacube_torch32.permute(2, 3, 0, 1)  # rearrange data
-data_for_prediction.shape #torch.Size([500, 500, 320, 10])
-# [500, 500, 329, 10] after DOY concatentation, expected [500, 500, 329, 11]
-'''now i need to turn the datacube data into the DataLoader format to enable prediction'''
-data_for_prediction = data_for_prediction.to(device)
-data_for_prediction_loader = Data.DataLoader(data_for_prediction, batch_size=1, shuffle=True, num_workers=0, drop_last=False)
-
+data_for_prediction = normalized_inference_datacube.to(device) # pass data to GPU
 print('starting for loop prediction')
-x = 500
-y = 500
-import datetime
 result = np.zeros((x, y, 1))
 for row in range(x):
     print(row)
     print(datetime.datetime.now())
-    for col in range(y):
-        print(col)
-        print(datetime.datetime.now())
-        for pixel in data_for_prediction_loader:
-            pixel = pixel.to(device)
-            predicted_class = predict2(pixel)
-            result[row, col, :] = predicted_class
-
-# result = torch.tensor(result)  # Convert the list to an array
+    for col in range(y): # TODO: instead of predicting single pixels, maybe predict entire rows/columns using the data loader
+        pixel = data_for_prediction[x, y, :, :] # select pixel at this position # TODO: verify x and y to avoid 90 degrees rotation
+        predicted_class = predict(pixel)
+        predicted_class = predicted_class.cpu().numpy()
+        result[row, col, :] = predicted_class
 map = result
 print('loop done')
 

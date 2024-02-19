@@ -124,7 +124,10 @@ class TransformerClassifier(nn.Module):
 
         output = self.transformer_encoder(x)
         # output: [seq_len, batch_size, d_model]
-        output = output.mean(dim=1) #GPT WTF this is global max pooling, i am not sure what it means and how it works but it seemingly helps to attribute a single class to the entire time series instead of separate labels for each time step of the SITS
+        output = output.max(dim=0)[0]
+        # output = output.mean(dim=0) #GPT WTF this is global max pooling, BEFORE: transformer gets prediction for each sample for each timestep AFTER: uses weights of all timesteps to get class for all embeddings
+        # TODO: compare max and avg pooling
+        # [seq_len, d_model]
         output = self.fc(output) #GPT should be [batch_size, num_classes]
         # final shape: [batch_size, num_classes]
         return output
