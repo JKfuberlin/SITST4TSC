@@ -16,8 +16,8 @@ def predict(pixel): # data_for_prediction should be a tensor of a single pixel
     model_pkl.eval()  # set model to eval mode to avoid dropout layer
     pixel.to(device)
     with torch.no_grad():  # do not track gradients during forward pass to speed up
-        output_probabilities = model_pkl(pixel)  # prediction
-        _, predicted_class = torch.max(output_probabilities,1)  # retrieving the class with the highest probability after softmax
+        output_probabilities = model_pkl(pixel.unsqueeze(0))  # Add batch dimension to use the entire time series as input, opposed to just model_pkl(pixel)
+        _, predicted_class = torch.max(output_probabilities,1)  # retrieving the class with the highest probability after softmax per timestep
     return predicted_class
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
@@ -73,9 +73,10 @@ if All == True:
             break
 if GROMIT == True:
     print('running on gromit')
-    model_pkl = torch.load('/home/j/data/outputs/models/Transformer_2.pkl', map_location=torch.device(device))
+    model_pkl = torch.load('/home/j/data/outputs/models/qnd.pkl', map_location=torch.device(device))
     clipped_datacube = np.load('/home/j/data/landshut_cropped_dc.npy')
     DOY = pd.read_csv('/home/j/data/doy_pixel_subset.csv', sep = '\t', header = None)
+    crop_shape = gpd.read_file('/home/j/data/landshut_minibatch.gpkg')
 if EOLAB == True:
     DOY = pd.read_csv('/point_storage/data/doy_pixel_subset.csv', sep='\t', header=None)
     clipped_datacube = np.load('/point_storage/data/landshut_cropped_dc.npy')
@@ -93,31 +94,42 @@ datacube_np = np.concatenate((datacube_np, doy_reshaped), axis=1) # Concatenate 
 # datacube_np.shape #for inspection if necessary
 # rearrange npy array
 datacube_rearranged = np.transpose(datacube_np, (2, 3, 0, 1))
+seq_len = 329 # TODO: set this variable somewhere else, make it dependant on what the model really expects
 num_bands = datacube_rearranged.shape[3] # retrieving numer of bands
 batch_norm = nn.BatchNorm1d(num_bands)  # Create a BatchNorm1d layer with `num_bands` as the number of input features.
 x = datacube_rearranged.shape[0]-1
 y = datacube_rearranged.shape[1]-1
-normalized_inference_datacube = np.zeros((x, y, 329, 11))
-for row in range(x): # assuming, data_for_prediction is a x*y raster
-    print(row)
-    print(datetime.datetime.now())
-    for col in range(y):
-        pixel = datacube_rearranged[row, col, :,:] # get the pixel timeseries
-        pixel[pixel == -9999] = np.nan # FORCE NA value is -9999 but the model expects np.nan
-        pixel_torch16 = torch.tensor(pixel)  # turn the numpy array into a pytorch tensor, the result is in int16..
-        pixel_torch32 = pixel_torch16.to(torch.float32) # ...so we need to transfer it to float32 so that the model can use it as input
-        pixel_normalized = batch_norm(pixel_torch32).detach().numpy()# run the normalization on the tensor. detach because i don't want gradients from batch_norm. #WTF why zack to numpy?
-        normalized_inference_datacube[row, col, :] = pixel_normalized
-        normalized_inference_datacube[row:row + 329, col:col + 11, :] = pixel_normalized
 
-data_for_prediction = normalized_inference_datacube.to(device) # pass data to GPU
+LOAD = True
+
+if LOAD == False:
+    normalized_inference_datacube = np.zeros((x, y, seq_len, num_bands))
+    for row in range(x): # assuming, data_for_prediction is a x*y raster
+        print(row)
+        print(datetime.datetime.now())
+        for col in range(y):
+            pixel = datacube_rearranged[row, col, :, :].astype(float) # get the pixel timeseries, need to assign float cuz of NA values / -9999
+            pixel[pixel == -9999] = 0 # Now 'pixel' contains 0s instead of NaN values, effectively achieving positional padding
+            pixel_torch64 = torch.tensor(pixel, dtype=torch.float64) # Convert to torch tensor
+            pixel_torch64 = pixel_torch64.float() # Convert to a single data type, back to float
+            pixel_normalized = batch_norm(pixel_torch64).detach().numpy()
+            normalized_inference_datacube[row:row + 329, col:col + 11, :] = pixel_normalized
+    # np.save(file='/home/j/data/normalized_inference_datacube.npy', arr=normalized_inference_datacube)
+
+else:
+    normalized_inference_datacube = np.load('/home/j/data/normalized_inference_datacube.npy')
+
+data_for_prediction = torch.tensor(normalized_inference_datacube) # turn the numpy array into a pytorch tensor, the result is in int16..
+data_for_prediction = data_for_prediction.to(torch.float32) # ...so we need to transfer it to float32 so that the model can use it as input
+data_for_prediction = data_for_prediction.to(device)
+
 print('starting for loop prediction')
 result = np.zeros((x, y, 1))
 for row in range(x):
     print(row)
     print(datetime.datetime.now())
     for col in range(y): # TODO: instead of predicting single pixels, maybe predict entire rows/columns using the data loader
-        pixel = data_for_prediction[x, y, :, :] # select pixel at this position # TODO: verify x and y to avoid 90 degrees rotation
+        pixel = data_for_prediction[row, col, :, :] # select pixel at this position # TODO: verify x and y to avoid 90 degrees rotation
         predicted_class = predict(pixel)
         predicted_class = predicted_class.cpu().numpy()
         result[row, col, :] = predicted_class
@@ -139,14 +151,9 @@ metadata = {
     'transform': from_origin(origin[0], origin[1], 10, 10)  # Set the origin and pixel size (assumes each pixel is 1 unit)
 }
 
+result = map[:, :, 0]
 print('writing')
-with rasterio.open(os.path.join('/point_storage/', 'landshut_transformer.tif'), 'w', **metadata) as dst:
+with rasterio.open(os.path.join('/home/j/data/', 'landshut_transformer.tif'), 'w', **metadata) as dst:
     # dst.write_band(1, map.astype(rasterio.float32))
-    dst.write(map.astype(rasterio.float32), indexes=1)
+    dst.write(result.astype(rasterio.float32), indexes=1)
 print('written')
-
-# map_reshaped = map.transpose(1, 2, 0, 3)
-#
-# with rasterio.open(os.path.join('/point_storage/', 'landshut_transformer.tif'), 'w', **metadata) as dst:
-#     for i in range(map_reshaped.shape[3]):
-#         dst.write_band(i + 1, map_reshaped[:, :, :, i].astype(rasterio.float32))

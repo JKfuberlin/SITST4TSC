@@ -257,6 +257,7 @@ if __name__ == "__main__":
     #              profile_memory=True,
     #              with_stack=True
     #              ) as prof:
+    EPOCH = 1
     for epoch in range(EPOCH):
         if LOG:
             prof = torch.profiler.profile(
@@ -294,6 +295,8 @@ if __name__ == "__main__":
             print(epoch, '/n', val_acc)
     if LOG:
         writer.close() #why not writer.flush? what is the difference #WTF
+
+    torch.save(model, f'/home/j/data/outputs/models/qnd.pkl')
 
     # visualize loss and accuracy during training and validation
     model.load_state_dict(torch.load(MODEL_PATH))

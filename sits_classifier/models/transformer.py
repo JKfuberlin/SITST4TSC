@@ -122,13 +122,12 @@ class TransformerClassifier(nn.Module):
             x[i, :, self.d_model:] = self.PEinstance(input_sequence[i, :, 10].long()).squeeze()
         # each batch's embedding is sliced and the second half replaced with a positional embedding of the DOY (11th column of the input_sequence) at the corresponding observation i
 
-        output = self.transformer_encoder(x)
-        # output: [seq_len, batch_size, d_model]
-        output = output.max(dim=0)[0]
-        # output = output.mean(dim=0) #GPT WTF this is global max pooling, BEFORE: transformer gets prediction for each sample for each timestep AFTER: uses weights of all timesteps to get class for all embeddings
+        output_encoder = self.transformer_encoder(x)
+        # output: [batch_size, seq_len, d_model]
+        # pool, _ = torch.max(output_encoder, dim=1, keepdim=False)
+        pool = output_encoder.mean(dim=1) #this is global mean pooling   # [batch_size, seq_len, d_model]
         # TODO: compare max and avg pooling
-        # [seq_len, d_model]
-        output = self.fc(output) #GPT should be [batch_size, num_classes]
+        output = self.fc(pool) # should be [batch_size, num_classes]
         # final shape: [batch_size, num_classes]
         return output
 
