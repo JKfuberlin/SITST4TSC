@@ -11,7 +11,6 @@ import sys
 import torch # Pytorch - DL framework
 from torch import nn, optim, Tensor
 import torch.utils.data as Data
-# from torch.utils.tensorboard import SummaryWriter
 import os # for creating dirs if needed
 sys.path.append('../') # navigating one level up to access all modules
 
@@ -63,7 +62,7 @@ if GROMIT:
     # d_model = 128
     nhead = 4 # AssertionError: embed_dim must be divisible by num_heads
     num_layers = 6
-    dim_feedforward = 256
+    dim_feedforward = 4096
     BATCH_SIZE = 16
     EPOCH = 240
     LR = 0.00001  # learning rate, which in theory could be within the scope of parameter tuning
@@ -106,7 +105,6 @@ def build_dataloader(x_set:Tensor, y_set:Tensor, batch_size:int) -> tuple[Data.D
     # num_workers is for parallelizing this function, however i need to set it to 1 on the HPC
     # shuffle is True so data will be shuffled in every epoch, this probably is activated to decrease overfitting
     # drop_last = False makes sure, the entirety of the dataset is used even if the remainder of the last samples is fewer than batch_size
-
     '''
     The DataLoader object now contains n batches of [batch_size, seq_len, num_bands] and can be used for iteration in train()
     '''
@@ -257,7 +255,6 @@ if __name__ == "__main__":
     #              profile_memory=True,
     #              with_stack=True
     #              ) as prof:
-    EPOCH = 1
     for epoch in range(EPOCH):
         if LOG:
             prof = torch.profiler.profile(
@@ -296,7 +293,7 @@ if __name__ == "__main__":
     if LOG:
         writer.close() #why not writer.flush? what is the difference #WTF
 
-    torch.save(model, f'/home/j/data/outputs/models/qnd.pkl')
+    torch.save(model, f'/home/j/data/outputs/models/lqnld.pkl')
 
     # visualize loss and accuracy during training and validation
     model.load_state_dict(torch.load(MODEL_PATH))

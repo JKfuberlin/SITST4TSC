@@ -83,6 +83,7 @@ def balance_labels_subset(label_path:str, data_dir:str, balance:bool):
 
 def to_numpy(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     """Load label and time series data, transfer them to numpy array"""
+    """apply end of sequence zero padding"""
     print("load training data")
     labels = labels # TODO i deleted the loading based on colname ID, make sure it works
     # Step 1: find max time steps

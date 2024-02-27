@@ -5,16 +5,15 @@ import sits_classifier.utils.csv as csv
 import os
 
 # # settings
-PATH = '/home/j/data/'
-DATA_DIR = os.path.join(PATH, 'my_volume/balanced_subset_reshape/')
+PATH = '/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/'
+DATA_DIR = os.path.join(PATH, 'pxl_balanced_subset_reshape/')
 LABEL_CSV = 'balanced_labels_pxl.csv'
-LABEL_PATH = os.path.join(PATH, LABEL_CSV)
+LABEL_PATH = os.path.join('/home/j/data/', LABEL_CSV)
 
 
 def numpy_to_tensor(x_data: np.ndarray, y_data: np.ndarray) -> tuple[Tensor, Tensor]:
     """Transfer numpy.ndarray to torch.tensor, and necessary pre-processing like embedding or reshape"""
-    y_data = y_data.reshape(-1)  # This reshapes the y_data numpy array from a 2-dimensional array with shape (n, 1) to a 1-dimensional
-    # array with shape (n, ).
+    y_data = y_data.reshape(-1)  # This reshapes the y_data numpy array from a 2-dimensional array with shape (n, 1) to a 1-dimensional array with shape (n, ).
     x_set = torch.from_numpy(x_data)
     y_set = torch.from_numpy(y_data)
     # standardization:
