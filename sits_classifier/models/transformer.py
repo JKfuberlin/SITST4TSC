@@ -73,9 +73,9 @@ class PositionalEncoding(nn.Module):
 
 
 class TransformerClassifier(nn.Module):
-    def __init__(self, num_bands:int, num_classes:int, d_model:int, nhead:int, num_layers:int, dim_feedforward:int) -> None:
+    def __init__(self, num_bands:int, num_classes:int, d_model:int, nhead:int, num_layers:int, dim_feedforward:int, sequence_length:int) -> None:
         super(TransformerClassifier, self).__init__()
-
+        self.sequence_length = sequence_length
         self.d_model = d_model
         # encoder embedding, here a linear transformation is used to create the embedding, apparently it is an instance of nn.Linear that takes num_bands and d_model as args
         self.src_embd = nn.Linear(num_bands, d_model) # GPT: this linear transformation involves multiplying the input by a weight matrix and adding a bias vector.

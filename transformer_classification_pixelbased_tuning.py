@@ -16,7 +16,7 @@ sys.path.append('../') # navigating one level up to access all modules
 
 # explainable AI:
 
-GROMIT = True
+GROMIT = False
 PARSE = False
 LOG = False
 if LOG:
@@ -69,6 +69,7 @@ if GROMIT:
     if LOG:
         writer = SummaryWriter(log_dir='/home/j/data/prof/')  # initialize tensorboard
 else:
+    UID = 999
     x_set = torch.load('/home/j/data/x_set.pt')
     y_set = torch.load('/home/j/data/y_set.pt')
     PATH = '/home/jonathan/data/'
@@ -85,6 +86,7 @@ SEED = 420 # a random seed for reproduction, at some point i should try differen
 patience = 25 # early stopping patience; how long to wait after last time validation loss improved.
 num_bands = 10 # number of different bands from Sentinel 2
 num_classes = 10 # the number of different classes that are supposed to be distinguished
+sequece_length = x_set.size(1) # this retrieves the sequence length from the x_set tensor
 
 
 def build_dataloader(x_set:Tensor, y_set:Tensor, batch_size:int) -> tuple[Data.DataLoader, Data.DataLoader, Data.DataLoader, Tensor]:
@@ -230,7 +232,7 @@ if __name__ == "__main__":
     timestamp()
     train_loader, val_loader, test_loader = build_dataloader(x_set, y_set, BATCH_SIZE)
     # model
-    model = TransformerClassifier(num_bands, num_classes, d_model, nhead, num_layers, dim_feedforward).to(device)
+    model = TransformerClassifier(num_bands, num_classes, d_model, nhead, num_layers, dim_feedforward, sequence_length).to(device)
     save_hyperparameters()
     criterion = nn.CrossEntropyLoss().to(device)
     optimizer = optim.Adam(model.parameters(), LR)
