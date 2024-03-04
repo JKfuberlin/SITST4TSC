@@ -8,7 +8,7 @@ SHP_DIR = 'D:\\Deutschland\\FUB\\master_thesis\\data\\Reference_data\\bw_all_pol
 OUTPUT_DIR = 'D:\\Deutschland\\FUB\\master_thesis\\data\\ref\\all'
 INPUT_SHP = 'buffered_wgs_bw_polygons.shp'
 OUTPUT_SHP = 'bw_polygons_pure.shp'
-REF_CSV = 'reference_pure.csv'
+REF_CSV = 'reference_pure.my_csv'
 
 # %%
 def load_shp_file() -> gpd.GeoDataFrame:
@@ -69,7 +69,7 @@ def export_csv_reference(gdf:gpd.GeoDataFrame) -> None:
         'BST3_BAA_1', 'BST3_BAA_2', 'BST3_BAA_3', 'BST3_BAA_4', 'BST3_BAA_5', 'BST3_BAA_6', 'BST3_BAA_7', 'BST3_BAA_8',
         'geometry']
     gdf.drop(columns=cols, inplace=True)
-    # export result as csv file
+    # export result as my_csv file
     ref_path = os.path.join(OUTPUT_DIR, REF_CSV)
     csv.export(gdf, ref_path, False)
 

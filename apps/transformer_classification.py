@@ -5,7 +5,7 @@ import torch.utils.data as Data
 from typing import Tuple
 import os
 import json
-import sits_classifier.utils.csv as csv
+import sits_classifier.utils.csv_utils as csv
 from sits_classifier.models.transformer import TransformerClassifier
 import sits_classifier.utils.validation as val
 import sits_classifier.utils.plot as plot
@@ -15,7 +15,7 @@ import sits_classifier.utils.plot as plot
 # file path
 PATH='/mnt/extra/my_volume/'
 DATA_DIR = os.path.join(PATH, 'csv_reshape')
-LABEL_CSV = 'labels_unbalanced.csv'
+LABEL_CSV = 'labels_unbalanced.my_csv'
 METHOD = 'classification'
 MODEL = 'transformer'
 UID = '5pure'

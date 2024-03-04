@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from torch import nn, Tensor
-import sits_classifier.utils.csv as csv
+import sits_classifier.utils.csv_utils as csv_utils
 import os
 
 # # settings
@@ -22,9 +22,10 @@ def numpy_to_tensor(x_data: np.ndarray, y_data: np.ndarray) -> tuple[Tensor, Ten
     # number of columns in the tensor
     # need to reshape in order to apply batch_norm
     # see Annex 1
-    batch_norm = nn.BatchNorm1d(num_bands)  # Create a BatchNorm1d layer with `num_bands` as the number of input features.
-    x_set: Tensor = batch_norm(x_set)  # standardization is used to improve convergence, should lead to values between 0 and 1
-    x_set = x_set.view(sz, seq,num_bands).detach()  # sz is the amount of samples, seq is the sequence length, and num_bands is the number of features
+    # batch_norm = nn.BatchNorm1d(num_bands)  # Create a BatchNorm1d layer with `num_bands` as the number of input features.
+    # x_set: Tensor = batch_norm(x_set)  # standardization is used to improve convergence, should lead to values between 0 and 1
+    s2_cube_np = (x_set - x_set.mean(axis=0)) / (x_set.std(axis=0) + 1e-6) # compare numpy normalization, result: it is identical to nn.BatchNorm1d
+    x_set = s2_cube_np.view(sz, seq,num_bands).detach()  # sz is the amount of samples, seq is the sequence length, and num_bands is the number of features
     # The `.detach()` method is necessary here to create a new tensor that is "detached from the computation graph" as we only want to apply this normalization once
     # .detach prevents gradients from flowing backward through a tensor.
     return x_set, y_set
@@ -37,9 +38,8 @@ def numpy_to_tensor(x_data: np.ndarray, y_data: np.ndarray) -> tuple[Tensor, Ten
 
 if __name__ == "__main__":
     balance = False
-    labels = csv.balance_labels_subset(LABEL_PATH, DATA_DIR, balance)  # remove y_data with no correspondence in DATA_DIR and optionally
-    # balance the data based on minority class in dataset
-    x_data, y_data = csv.to_numpy_subset(DATA_DIR, labels)  # turn csv file into numpy dataset
+    labels = csv_utils.balance_labels_subset(LABEL_PATH, DATA_DIR, balance)  # remove y_data with no correspondence in DATA_DIR and optionally
+    x_data, y_data = csv_utils.to_numpy_subset(DATA_DIR, labels)  # turn csv file into numpy dataset while balancing the data based on minority class in dataset
     x_data = x_data[:, :, 1:12] # 1 - 12 subsets all bands + DOY
     x_set, y_set = numpy_to_tensor(x_data, y_data)  # turn dataset into tensor format
     torch.save(x_set, '/home/j/data/x_set_pxl.pt')

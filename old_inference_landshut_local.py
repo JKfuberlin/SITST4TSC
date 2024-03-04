@@ -85,8 +85,8 @@ else:
         model_pkl = torch.load('/point_storage/data/Transformer_1.pkl', map_location=torch.device('cpu'))  # loading the trained model
     # data_for_prediction = torch.load('/home/j/data/datacube_doy.pt')
     # clipped_datacube = np.load('/home/j/data/landshut_cropped_dc.npy')
-    # DOY = pandas.read_csv('/home/j/data/doy_pixel_subset.csv', sep = '\t', header = None)
-    DOY = pd.read_csv('/point_storage/data/doy_pixel_subset.csv', sep='\t', header=None)
+    # DOY = pandas.read_csv('/home/j/data/doy_pixel_subset.my_csv', sep = '\t', header = None)
+    DOY = pd.read_csv('/point_storage/data/doy_pixel_subset.my_csv', sep='\t', header=None)
     clipped_datacube = np.load('/point_storage/data/landshut_cropped_dc.npy')
 
 DOY = np.array(DOY)

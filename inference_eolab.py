@@ -6,7 +6,6 @@ import geopandas as gpd # for reading shapefiles
 import numpy as np
 import datetime # for benchmarking
 import torch # for loading the model and actual inference
-from torch import nn
 import rioxarray as rxr # for raster clipping
 from shapely.geometry import mapping # for clipping
 from rasterio.transform import from_origin # for assigning an origin to the created map
@@ -21,8 +20,8 @@ def predict(pixel): # data_for_prediction should be a tensor of a single pixel
     return predicted_class
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
-All = False
-GROMIT = True
+All = True
+GROMIT = False
 EOLAB = False
 
 if All == True:
@@ -78,7 +77,7 @@ if GROMIT == True:
     DOY = pd.read_csv('/home/j/data/doy_pixel_subset.csv', sep = '\t', header = None)
     crop_shape = gpd.read_file('/home/j/data/landshut_minibatch.gpkg')
 if EOLAB == True:
-    DOY = pd.read_csv('/point_storage/data/doy_pixel_subset.csv', sep='\t', header=None)
+    DOY = pd.read_csv('/point_storage/data/doy_pixel_subset.my_csv', sep='\t', header=None)
     clipped_datacube = np.load('/point_storage/data/landshut_cropped_dc.npy')
     model_pkl = torch.load('/point_storage/data/Transformer_1.pkl', map_location=device)
     crop_shape = gpd.read_file('/point_storage/landshut_minibatch.gpkg')
@@ -96,12 +95,10 @@ datacube_np = np.concatenate((datacube_np, doy_reshaped), axis=1) # Concatenate 
 datacube_rearranged = np.transpose(datacube_np, (2, 3, 0, 1))
 seq_len = 329 # TODO: set this variable somewhere else, make it dependant on what the model really expects
 num_bands = datacube_rearranged.shape[3] # retrieving numer of bands
-batch_norm = nn.BatchNorm1d(num_bands)  # Create a BatchNorm1d layer with `num_bands` as the number of input features.
 x = datacube_rearranged.shape[0]-1
 y = datacube_rearranged.shape[1]-1
 
-LOAD = True
-
+LOAD = False
 if LOAD == False:
     normalized_inference_datacube = np.zeros((x, y, seq_len, num_bands))
     for row in range(x): # assuming, data_for_prediction is a x*y raster
@@ -110,10 +107,10 @@ if LOAD == False:
         for col in range(y):
             pixel = datacube_rearranged[row, col, :, :].astype(float) # get the pixel timeseries, need to assign float cuz of NA values / -9999
             pixel[pixel == -9999] = 0 # Now 'pixel' contains 0s instead of NaN values, effectively achieving positional padding
-            pixel_torch64 = torch.tensor(pixel, dtype=torch.float64) # Convert to torch tensor
+            pixel_normalized = (pixel - pixel.mean(axis=0)) / (pixel.std(axis=0) + 1e-6)
+            pixel_torch64 = torch.tensor(pixel_normalized, dtype=torch.float64) # Convert to torch tensor
             pixel_torch64 = pixel_torch64.float() # Convert to a single data type, back to float
-            pixel_normalized = batch_norm(pixel_torch64).detach().numpy()
-            normalized_inference_datacube[row:row + 329, col:col + 11, :] = pixel_normalized
+            normalized_inference_datacube[row:row + 329, col:col + 11, :] = pixel_torch64
     # np.save(file='/home/j/data/normalized_inference_datacube.npy', arr=normalized_inference_datacube)
 
 else:
@@ -153,7 +150,7 @@ metadata = {
 
 result = map[:, :, 0]
 print('writing')
-with rasterio.open(os.path.join('/home/j/data/', 'landshut_transformer.tif'), 'w', **metadata) as dst:
+with rasterio.open(os.path.join('/home/j/data/', 'landshut_transformer_lqnld.tif'), 'w', **metadata) as dst:
     # dst.write_band(1, map.astype(rasterio.float32))
     dst.write(result.astype(rasterio.float32), indexes=1)
 print('written')

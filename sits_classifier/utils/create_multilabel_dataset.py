@@ -1,17 +1,17 @@
 import numpy as np
 import torch
 from torch import nn, Tensor
-import sits_classifier.utils.csv as csv
+import sits_classifier.utils.csv_utils as csv
 import os
 
 # # settings
-PATH = '/home/j/Nextcloud/csv/'
+PATH = '/home/j/Nextcloud/my_csv/'
 DATA_DIR = os.path.join(PATH, 'multilabel_microdose/')
-LABEL_CSV = 'multilabels.csv'
+LABEL_CSV = 'multilabels.my_csv'
 LABEL_PATH = os.path.join(PATH, LABEL_CSV)
 
 
-# LABEL_PATH = '/home/jonathan/data/multilabels.csv'
+# LABEL_PATH = '/home/jonathan/data/multilabels.my_csv'
 # DATA_DIR = '/home/jonathan/data/multilabel_microdose/'
 
 
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     labels = csv.shuffle_labels(LABEL_PATH,
                                 DATA_DIR)  # remove y_data with no correspondence in DATA_DIR and optionally balance
     # the data based on minority class in dataset
-    x_data, y_data = csv.to_numpy(DATA_DIR, labels)  # turn csv file into numpy dataset
+    x_data, y_data = csv.to_numpy(DATA_DIR, labels)  # turn my_csv file into numpy dataset
     x_data = x_data[:, :, 1:11]
     x_set, y_set = numpy_to_tensor(x_data, y_data)  # turn dataset into tensor format
     torch.save(x_set, '/home/j/data/x_set.pt')
@@ -64,8 +64,8 @@ y_list = []
 for index, row in labels.iterrows():  # i do not understand the use of 2 iterators. for each index and row
     # print(index) # index ends up just being i
     # print(row) # row being the actual labels but not from labels but from data somehow ???
-    df_path = os.path.join(data_dir, f'{row[0]}.csv')  # retrieve row value to open the correct csv
-    df = csv.load(df_path, 'OBJECTID', False)  # loading the csv, don't know why i need index col
+    df_path = os.path.join(data_dir, f'{row[0]}.my_csv')  # retrieve row value to open the correct my_csv
+    df = csv.load(df_path, 'OBJECTID', False)  # loading the my_csv, don't know why i need index col
     # and date and a custom load function in the first place when all it does is pd.read_csv
     df = df.iloc[:, 120:]  # remove unwanted columns, such as BST.. geometries, comments etc.
     x = np.array(df).astype(np.float32)
@@ -78,8 +78,8 @@ for i in labels:
 
 for i in labels.iterrows():
     print(i)
-    # df_path = os.path.join(data_dir, f'{i[0]}.csv')
-    # df = csv.load(df_path, 'OBJECTID', False)
+    # df_path = os.path.join(data_dir, f'{i[0]}.my_csv')
+    # df = my_csv.load(df_path, 'OBJECTID', False)
 
 # i had some problems concatenating x_list so here i do some investigation:
 # print(x_list.class)

@@ -64,7 +64,7 @@ if local == True:
 
 
 # fixed settings:
-num_bands = 10 # number of columns in csv files
+num_bands = 10 # number of columns in my_csv files
 num_classes = 10  # number of different labels / different tree species classes in data
 
 def save_hyperparameters() -> None:
