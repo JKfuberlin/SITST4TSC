@@ -20,8 +20,9 @@ def predict(pixel): # data_for_prediction should be a tensor of a single pixel
     return predicted_class
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
-All = True
-GROMIT = False
+print(device)
+All = False
+GROMIT = True
 EOLAB = False
 
 if All == True:
@@ -72,10 +73,10 @@ if All == True:
             break
 if GROMIT == True:
     print('running on gromit')
-    model_pkl = torch.load('/home/j/data/outputs/models/qnd.pkl', map_location=torch.device(device))
-    clipped_datacube = np.load('/home/j/data/landshut_cropped_dc.npy')
-    DOY = pd.read_csv('/home/j/data/doy_pixel_subset.csv', sep = '\t', header = None)
-    crop_shape = gpd.read_file('/home/j/data/landshut_minibatch.gpkg')
+    model_pkl = torch.load('/home/j/data/outputs/models/lqnld.pkl', map_location=torch.device(device))
+    clipped_datacube = np.load('/home/j/data/test_pixel_north_dc1.npy')
+    DOY = pd.read_csv('/home/j/data/DOY/test_pixel_north1.csv', sep = '\t', header = None)
+    crop_shape = gpd.read_file('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/validation_area/Test_pixel_north1.gpkg')
 if EOLAB == True:
     DOY = pd.read_csv('/point_storage/data/doy_pixel_subset.my_csv', sep='\t', header=None)
     clipped_datacube = np.load('/point_storage/data/landshut_cropped_dc.npy')
@@ -86,10 +87,26 @@ print('DOY, model and datacube loaded')
 
 DOY = np.array(DOY)
 datacube_np = np.array(clipped_datacube, ndmin = 4) # this is now a clipped datacube for the first minitile, fixing it to be 4 dimensions
-doy_reshaped = DOY.reshape((329, 1, 1, 1)) # Reshape doy to have a new axis
+datacube_norm = (clipped_datacube - clipped_datacube.mean(axis=0)) / (clipped_datacube.std(axis=0) + 1e-6)
+datacube_seqlen = datacube_norm.shape[0]
+deltaseqlen = 329 - datacube_seqlen
+
+seed = 42
+def setup_seed(seed:int) -> None:
+    np.random.seed(seed)
+
+if deltaseqlen >= 0: # if the datacube sequence is shorter than what the model is trained on
+    DOY = np.pad(DOY, ((0, deltaseqlen), (0, 0)), mode='constant')
+    datacube_norm = np.pad(datacube_np, ((0, deltaseqlen), (0, 0), (0, 0), (0, 0)), mode='constant', constant_values=0)
+elif deltaseqlen <= 0: # if the datacube sequence is longer than expected, cut observations at random
+    remove_indices = np.random.choice(range(len(DOY)), abs(deltaseqlen), replace=False)
+    DOY = np.delete(DOY, remove_indices, axis=0)
+    datacube_norm = np.delete(datacube_norm, remove_indices, axis=0)
+
+doy_reshaped = DOY.reshape((329, 1, 1, 1))
 doy_reshaped = np.repeat(doy_reshaped, 500, axis=2) # Repeat the doy values along the third and fourth dimensions to match datacube_np
 doy_reshaped = np.repeat(doy_reshaped, 500, axis=3)
-datacube_np = np.concatenate((datacube_np, doy_reshaped), axis=1) # Concatenate along the second axis
+datacube_np = np.concatenate((datacube_norm, doy_reshaped), axis=1) # Concatenate along the second axis
 # datacube_np.shape #for inspection if necessary
 # rearrange npy array
 datacube_rearranged = np.transpose(datacube_np, (2, 3, 0, 1))
@@ -98,7 +115,7 @@ num_bands = datacube_rearranged.shape[3] # retrieving numer of bands
 x = datacube_rearranged.shape[0]-1
 y = datacube_rearranged.shape[1]-1
 
-LOAD = False
+LOAD = True
 if LOAD == False:
     normalized_inference_datacube = np.zeros((x, y, seq_len, num_bands))
     for row in range(x): # assuming, data_for_prediction is a x*y raster
@@ -107,14 +124,14 @@ if LOAD == False:
         for col in range(y):
             pixel = datacube_rearranged[row, col, :, :].astype(float) # get the pixel timeseries, need to assign float cuz of NA values / -9999
             pixel[pixel == -9999] = 0 # Now 'pixel' contains 0s instead of NaN values, effectively achieving positional padding
-            pixel_normalized = (pixel - pixel.mean(axis=0)) / (pixel.std(axis=0) + 1e-6)
-            pixel_torch64 = torch.tensor(pixel_normalized, dtype=torch.float64) # Convert to torch tensor
+            pixel_torch64 = torch.tensor(pixel, dtype=torch.float64) # Convert to torch tensor
             pixel_torch64 = pixel_torch64.float() # Convert to a single data type, back to float
             normalized_inference_datacube[row:row + 329, col:col + 11, :] = pixel_torch64
-    # np.save(file='/home/j/data/normalized_inference_datacube.npy', arr=normalized_inference_datacube)
-
+    np.save(file='/home/j/data/datacube_north1.npy', arr=normalized_inference_datacube)
 else:
-    normalized_inference_datacube = np.load('/home/j/data/normalized_inference_datacube.npy')
+    # normalized_inference_datacube = np.load('/home/j/data/normalized_inference_datacube.npy')
+    normalized_inference_datacube = np.load('/home/j/data/datacube_north1.npy')
+    print("stored datacube loaded")
 
 data_for_prediction = torch.tensor(normalized_inference_datacube) # turn the numpy array into a pytorch tensor, the result is in int16..
 data_for_prediction = data_for_prediction.to(torch.float32) # ...so we need to transfer it to float32 so that the model can use it as input
@@ -150,7 +167,7 @@ metadata = {
 
 result = map[:, :, 0]
 print('writing')
-with rasterio.open(os.path.join('/home/j/data/', 'landshut_transformer_lqnld.tif'), 'w', **metadata) as dst:
+with rasterio.open(os.path.join('/home/j/data/', 'aoi_north1_re_transformer_lqnld.tif'), 'w', **metadata) as dst:
     # dst.write_band(1, map.astype(rasterio.float32))
     dst.write(result.astype(rasterio.float32), indexes=1)
 print('written')

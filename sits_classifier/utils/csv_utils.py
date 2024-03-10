@@ -43,7 +43,6 @@ def subset_filenames(data_dir:str):
     file_names = [file.split('/')[-1].split('.')[0] for file in csv_files]
     file_names = [int(x) for x in file_names]
     return file_names
-
 def balance_labels_subset(label_path:str, data_dir:str, balance:bool):
     file_names = subset_filenames(data_dir)
     labels = pd.read_csv(label_path, sep=',', header=0, index_col=False) # this loads all labels from the csv file
@@ -71,7 +70,6 @@ def balance_labels_subset(label_path:str, data_dir:str, balance:bool):
     # Shuffle the dataframe
     balanced_df = balanced_df.sample(frac=1, random_state=42)
     return balanced_df
-
 def to_numpy(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     """Load label and time series data, transfer them to numpy array"""
     """apply end of sequence zero padding"""
@@ -103,7 +101,6 @@ def to_numpy(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     y_data = np.array(y_list)
     print("transferred data to numpy array")
     return x_data, y_data
-
 def to_numpy_subset(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     """Load label and time series data, transfer them to numpy array"""
     labels = labels # at this point we already created cleaned up labels from a previous function
@@ -136,8 +133,37 @@ def to_numpy_subset(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     y_data = np.array(y_list)
     print("transferred data to numpy array")
     return x_data, y_data
-
-
+def to_numpy_BI(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
+    """Load label and time series data, transfer them to numpy array"""
+    labels = labels
+    max_len = 0 # Step 1: find max time steps
+    labels = labels.head(3) # deleteme, bugfixing
+    for id in labels['ID']:
+        print(id)
+        df_path = os.path.join(data_dir, f'{id}.csv')
+        df = custom_load(df_path, True)
+        max_len = max(max_len, df.shape[0])
+    print(f'max sequence length: {max_len}')
+    # Step 2: transfer to numpy array
+    x_list = []
+    y_list = []
+    for tuple in labels.iterrows():
+        info = tuple[1] # access the first element of the tuple, which is a <class 'pandas.core.series.Series'>
+        ID = info[0] # the true value for the ID after NA removal and some messing up is here, this value identifies the csv
+        df_path = os.path.join(data_dir, f'{ID}.csv')
+        df = custom_load(df_path, False)
+        x = np.array(df).astype(np.float32) # create a new numpy array from the loaded csv file containing spectral values with the dataype float32
+        # use 0 padding make sequence length equal
+        padding = np.zeros((max_len - x.shape[0], x.shape[1]))
+        x = np.concatenate((x, padding), dtype=np.float32) # the 0s are appended to the end, will need to change this in the future to fill in missing observations
+        y = info[2] # this is the label
+        x_list.append(x)
+        y_list.append(y)
+    # concatenate array list
+    x_data = np.array(x_list)
+    y_data = np.array(y_list)
+    print("transferred data to numpy array")
+    return x_data, y_data
 def list_to_dataframe(lst:List[List[float]], cols:List[str], decimal:bool=True) -> pd.DataFrame:
     """Transfer list to pd.DataFrame"""
     df = pd.DataFrame(lst, columns=cols)
