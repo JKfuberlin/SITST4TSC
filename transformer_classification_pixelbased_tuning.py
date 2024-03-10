@@ -16,7 +16,7 @@ sys.path.append('../') # navigating one level up to access all modules
 
 # explainable AI:
 
-GROMIT = False
+GROMIT = True
 PARSE = False
 LOG = False
 if LOG:
@@ -50,21 +50,22 @@ else:
     BATCH_SIZE = 16
 
 if GROMIT:
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
-    UID = 1
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')  # Device configuration
+    print(device)
+    UID = 2
     PATH = '/home/j/data/'
     MODEL = 'Transformer'
     MODEL_NAME = MODEL + '_' + str(UID)
     MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME
     x_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl.pt')
     y_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/y_set_pxl.pt')
-    d_model = 512 # i want model dimension fit DOY_sequence length for now
+    d_model = 2056 # i want model dimension fit DOY_sequence length for now
     # d_model = 128
-    nhead = 4 # AssertionError: embed_dim must be divisible by num_heads
+    nhead = 8 # AssertionError: embed_dim must be divisible by num_heads
     num_layers = 6
     dim_feedforward = 4096
     BATCH_SIZE = 16
-    EPOCH = 240
+    EPOCH = 420
     LR = 0.00001  # learning rate, which in theory could be within the scope of parameter tuning
     if LOG:
         writer = SummaryWriter(log_dir='/home/j/data/prof/')  # initialize tensorboard
@@ -86,7 +87,7 @@ SEED = 420 # a random seed for reproduction, at some point i should try differen
 patience = 25 # early stopping patience; how long to wait after last time validation loss improved.
 num_bands = 10 # number of different bands from Sentinel 2
 num_classes = 10 # the number of different classes that are supposed to be distinguished
-sequece_length = x_set.size(1) # this retrieves the sequence length from the x_set tensor
+sequence_length = x_set.size(1) # this retrieves the sequence length from the x_set tensor
 
 
 def build_dataloader(x_set:Tensor, y_set:Tensor, batch_size:int) -> tuple[Data.DataLoader, Data.DataLoader, Data.DataLoader, Tensor]:
@@ -295,7 +296,7 @@ if __name__ == "__main__":
     if LOG:
         writer.close() #why not writer.flush? what is the difference #WTF
 
-    torch.save(model, f'/home/j/data/outputs/models/lqnld.pkl')
+    torch.save(model, f'/home/j/data/outputs/models/MORE.pkl')
 
     # visualize loss and accuracy during training and validation
     model.load_state_dict(torch.load(MODEL_PATH))
