@@ -85,8 +85,8 @@ class TransformerClassifier(nn.Module):
         encoder_norm = LayerNorm(d_model*2)
         self.transformer_encoder = TransformerEncoder(encoder_layer, num_layers, encoder_norm)
         # classification
-        self.fc = nn.Sequential(
-                    nn.Linear(d_model*2, 256),
+        self.fc = nn.Sequential( # does this run for each step of the sequence?
+                    nn.Linear(d_model*2, 256), # turn
                     nn.ReLU(),
                     nn.BatchNorm1d(256),
                     nn.Dropout(0.3),
@@ -125,9 +125,11 @@ class TransformerClassifier(nn.Module):
         output_encoder = self.transformer_encoder(x)
         # output: [batch_size, seq_len, d_model]
         # pool, _ = torch.max(output_encoder, dim=1, keepdim=False)
-        pool = output_encoder.mean(dim=1) #this is global mean pooling   # [batch_size, seq_len, d_model]
+        meanpool = output_encoder.mean(dim=1) #this is global mean pooling   # [batch_size, seq_len, d_model]
+        # maxpool = output_encoder.max(dim=1)
         # TODO: compare max and avg pooling
-        output = self.fc(pool) # should be [batch_size, num_classes]
+        output = self.fc(meanpool) # should be [batch_size, num_classes]
+        # output2 = self.fc(maxpool)
         # final shape: [batch_size, num_classes]
         return output
 

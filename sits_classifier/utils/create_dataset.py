@@ -43,5 +43,5 @@ if __name__ == "__main__":
     x_data, y_data = csv_utils.to_numpy_subset(DATA_DIR, labels)  # turn csv file into numpy dataset while balancing the data based on minority class in dataset
     x_data = x_data[:, :, 1:12] # 1 - 12 subsets all bands + DOY
     x_set, y_set = numpy_to_tensor(x_data, y_data)  # turn dataset into tensor format
-    torch.save(x_set, '/home/j/data/x_set_bi_pxl.pt')
-    torch.save(y_set, '/home/j/data/y_set_bi_pxl.pt')
+    torch.save(x_set, '/home/j/data/x_set_buffered_pxl.pt')
+    torch.save(y_set, '/home/j/data/y_set_buffered_pxl.pt')

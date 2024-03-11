@@ -17,13 +17,20 @@ def predict(pixel): # data_for_prediction should be a tensor of a single pixel
     with torch.no_grad():  # do not track gradients during forward pass to speed up
         output_probabilities = model_pkl(pixel.unsqueeze(0))  # Add batch dimension to use the entire time series as input, opposed to just model_pkl(pixel)
         _, predicted_class = torch.max(output_probabilities,1)  # retrieving the class with the highest probability after softmax per timestep
-    return predicted_class
+        numpy_array = output_probabilities.cpu().detach().numpy()
+        max_index = numpy_array.argmax()
+        final_probability = int(numpy_array[0, max_index])
+    if CLASSIFY == True:
+        return predicted_class
+    else:
+        return final_probability
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
 print(device)
 All = False
 GROMIT = True
 EOLAB = False
+CLASSIFY = False # if True, map the class with the highest probability, else write the max probability (confidence) into raster
 
 if All == True:
     print("dall'inizio")
@@ -145,7 +152,8 @@ for row in range(x):
     for col in range(y): # TODO: instead of predicting single pixels, maybe predict entire rows/columns using the data loader
         pixel = data_for_prediction[row, col, :, :] # select pixel at this position # TODO: verify x and y to avoid 90 degrees rotation
         predicted_class = predict(pixel)
-        predicted_class = predicted_class.cpu().numpy()
+        if CLASSIFY == True:
+            predicted_class = predicted_class.cpu().numpy()
         result[row, col, :] = predicted_class
 map = result
 print('loop done')
@@ -167,7 +175,7 @@ metadata = {
 
 result = map[:, :, 0]
 print('writing')
-with rasterio.open(os.path.join('/home/j/data/', 'aoi_north1_re_transformer_lqnld.tif'), 'w', **metadata) as dst:
+with rasterio.open(os.path.join('/home/j/data/', 'aoi_north1_transformer_lqnld_probs.tif'), 'w', **metadata) as dst:
     # dst.write_band(1, map.astype(rasterio.float32))
     dst.write(result.astype(rasterio.float32), indexes=1)
 print('written')
