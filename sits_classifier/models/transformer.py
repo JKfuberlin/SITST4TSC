@@ -86,12 +86,12 @@ class TransformerClassifier(nn.Module):
         self.transformer_encoder = TransformerEncoder(encoder_layer, num_layers, encoder_norm)
         # classification
         self.fc = nn.Sequential( # does this run for each step of the sequence?
-                    nn.Linear(d_model*2, 256), # turn
-                    nn.ReLU(),
-                    nn.BatchNorm1d(256),
-                    nn.Dropout(0.3),
-                    nn.Linear(256, num_classes),
-                    nn.Softmax(dim=1)
+                    nn.Linear(d_model*2, 256), # condense the output of the pooling of the transformer encoder into a more dense representation
+                    nn.ReLU(), # ReLu introduces non-linearity into the  network https://builtin.com/machine-learning/relu-activation-function
+                    nn.BatchNorm1d(256), # speeds up and stabilizes by normalizing the previous activations
+                    nn.Dropout(0.3), # randomly sets a fraction of the input to 0 to prevent overfitting during traninig, model.eval() should disable this
+                    nn.Linear(256, num_classes), # condense to the number of classes
+                    nn.Softmax(dim=1) # get activation percentage value for each class
                 )
 
     def forward(self, input_sequence: Tensor) -> Tensor:

@@ -137,9 +137,8 @@ def to_numpy_BI(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     """Load label and time series data, transfer them to numpy array"""
     labels = labels
     max_len = 0 # Step 1: find max time steps
-    labels = labels.head(3) # deleteme, bugfixing
     for id in labels['ID']:
-        print(id)
+        id = int(id)
         df_path = os.path.join(data_dir, f'{id}.csv')
         df = custom_load(df_path, True)
         max_len = max(max_len, df.shape[0])
@@ -147,16 +146,18 @@ def to_numpy_BI(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     # Step 2: transfer to numpy array
     x_list = []
     y_list = []
-    for tuple in labels.iterrows():
-        info = tuple[1] # access the first element of the tuple, which is a <class 'pandas.core.series.Series'>
-        ID = info[0] # the true value for the ID after NA removal and some messing up is here, this value identifies the csv
+    for _,row in labels.iterrows():
+        ID = int(row.iloc[0])
+        # info = tuple[1] # access the first element of the tuple, which is a <class 'pandas.core.series.Series'>
+        # ID = int(info[0]) # the true value for the ID after NA removal and some messing up is here, this value identifies the csv
         df_path = os.path.join(data_dir, f'{ID}.csv')
         df = custom_load(df_path, False)
+        if 'date' in df.columns:
+            df.drop(columns=['date'], inplace=True)
         x = np.array(df).astype(np.float32) # create a new numpy array from the loaded csv file containing spectral values with the dataype float32
-        # use 0 padding make sequence length equal
-        padding = np.zeros((max_len - x.shape[0], x.shape[1]))
+        padding = np.zeros((max_len - x.shape[0], x.shape[1]))# use 0 padding make sequence length equal
         x = np.concatenate((x, padding), dtype=np.float32) # the 0s are appended to the end, will need to change this in the future to fill in missing observations
-        y = info[2] # this is the label
+        y = int(row.iloc[2])# this is the label
         x_list.append(x)
         y_list.append(y)
     # concatenate array list

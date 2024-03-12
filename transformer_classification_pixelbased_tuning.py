@@ -59,10 +59,10 @@ if GROMIT:
     MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME
     x_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl.pt')
     y_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/y_set_pxl.pt')
-    d_model = 2056 # i want model dimension fit DOY_sequence length for now
+    d_model = 512 # i want model dimension fit DOY_sequence length for now
     # d_model = 128
     nhead = 8 # AssertionError: embed_dim must be divisible by num_heads
-    num_layers = 6
+    num_layers = 3
     dim_feedforward = 4096
     BATCH_SIZE = 16
     EPOCH = 420

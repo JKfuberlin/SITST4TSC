@@ -14,12 +14,12 @@ import pandas as pd
 def predict(pixel): # data_for_prediction should be a tensor of a single pixel
     model_pkl.eval()  # set model to eval mode to avoid dropout layer
     pixel.to(device)
-    with torch.no_grad():  # do not track gradients during forward pass to speed up
+    with (torch.no_grad()):  # do not track gradients during forward pass to speed up
         output_probabilities = model_pkl(pixel.unsqueeze(0))  # Add batch dimension to use the entire time series as input, opposed to just model_pkl(pixel)
         _, predicted_class = torch.max(output_probabilities,1)  # retrieving the class with the highest probability after softmax per timestep
         numpy_array = output_probabilities.cpu().detach().numpy()
         max_index = numpy_array.argmax()
-        final_probability = int(numpy_array[0, max_index])
+        final_probability = float(numpy_array[0, max_index])
     if CLASSIFY == True:
         return predicted_class
     else:
