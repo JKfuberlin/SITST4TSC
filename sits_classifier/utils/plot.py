@@ -53,7 +53,7 @@ def draw_confusion_matrix(y_true:List[int], y_pred:List[int], classes:List[str],
                     color="white" if matrix[i, j] >= thresh else "black")
     # set title and label
     indices = range(len(matrix))
-    title = f'{model} confusion matrix'
+    title = f'{modelname} confusion matrix'
     plt.xticks(indices, classes, rotation=45)
     plt.yticks(indices, classes)
     plt.ylabel('True label')

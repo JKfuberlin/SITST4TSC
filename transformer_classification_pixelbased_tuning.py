@@ -7,6 +7,7 @@ from sits_classifier.models.transformer import TransformerClassifier
 import sits_classifier.utils.validation as val
 import sits_classifier.utils.plot as plot
 from sits_classifier.utils.pytorchtools import EarlyStopping
+import sits_classifier.utils.csv_utils as csvutils # my costum functions
 import sys
 import torch # Pytorch - DL framework
 from torch import nn, optim, Tensor
@@ -90,28 +91,25 @@ num_classes = 10 # the number of different classes that are supposed to be disti
 sequence_length = x_set.size(1) # this retrieves the sequence length from the x_set tensor
 
 
-def build_dataloader(x_set:Tensor, y_set:Tensor, batch_size:int) -> tuple[Data.DataLoader, Data.DataLoader, Data.DataLoader, Tensor]:
+def build_dataloader(x_set:Tensor, y_set:Tensor, batch_size:int) -> tuple[Data.DataLoader, Data.DataLoader, Tensor]:
     """Build and split dataset, and generate dataloader for training and validation"""
     # automatically split dataset
     dataset = Data.TensorDataset(x_set, y_set) #  'wrapping' tensors: Each sample will be retrieved by indexing tensors along the first dimension.
     # gives me an object containing tuples of tensors of x_set and the labels
     #  x_set: [204, 305, 11] number of files, sequence length, number of bands
     size = len(dataset)
-    train_size, val_size, test_size = round(0.7 * size), round(0.2 * size), round(0.1 * size)
+    train_size, val_size = round(0.8 * size), round(0.2 * size)
     generator = torch.Generator() # this is for random sampling
-    train_dataset, val_dataset, test_dataset = Data.random_split(dataset, [train_size, val_size, test_size], generator) # split the data in train and validation
-    # val_dataset
-    # Create PyTorch data loaders from the datasets
-    train_loader = Data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=False)
+    train_dataset, val_dataset = Data.random_split(dataset, [train_size, val_size], generator) # split the data in train and validation
+    train_loader = Data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=False) # Create PyTorch data loaders from the datasets
     val_loader = Data.DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=False)
-    test_loader = Data.DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=False)
     # num_workers is for parallelizing this function, however i need to set it to 1 on the HPC
     # shuffle is True so data will be shuffled in every epoch, this probably is activated to decrease overfitting
     # drop_last = False makes sure, the entirety of the dataset is used even if the remainder of the last samples is fewer than batch_size
     '''
     The DataLoader object now contains n batches of [batch_size, seq_len, num_bands] and can be used for iteration in train()
     '''
-    return train_loader, val_loader, test_loader
+    return train_loader, val_loader
 def save_hyperparameters() -> None:
     """Save hyperparameters into a json file"""
     params = {
@@ -208,30 +206,32 @@ def test(model:nn.Module) -> None:
     with torch.no_grad():
         y_true = []
         y_pred = []
-        for (inputs, refs) in test_loader:
-            labels:Tensor = refs[:,1]
-            # put the data in gpu
-            inputs = inputs.to(device)
+        for (i) in test_loader:
+            inputs:Tensor = i[0]
+            labels:Tensor = i[1]
+            inputs = inputs.to(device) # put the data in gpu
             labels = labels.to(device)
-            # prediction
-            outputs:Tensor = model(inputs)
-            outputs = softmax(outputs)
+            outputs:Tensor = model(inputs)  # prediction
             _, predicted = torch.max(outputs.data, 1)
-            y_true += refs.tolist()
-            refs[:, 1] = predicted
-            y_pred += refs.tolist()
-        ref = csv.list_to_dataframe(y_true, ['id', 'class'], False)
-        pred = csv.list_to_dataframe(y_pred, ['id', 'class'], False)
-        csv.export(ref, f'../../outputs/{MODEL_NAME}_ref.csv', True)
-        csv.export(pred, f'../../outputs/{MODEL_NAME}_pred.csv', True)
-        # plot.draw_confusion_matrix(ref, pred, classes, MODEL_NAME)
+            y_true += labels.tolist()
+            y_pred += predicted.tolist()
+        classes = ['Spruce', 'Sfir', 'Dougl', 'Pine', 'Oak', 'Redoak', 'Beech', 'Sycamore', 'OtherCon', 'OtherDec']
+        plot.draw_confusion_matrix(y_true, y_pred, classes, MODEL_NAME, UID)
+    return
 
 if __name__ == "__main__":
+    model = torch.load('/home/j/data/outputs/models/lqnld.pkl', map_location=torch.device("cuda:1"))
+    test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
+    test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
+    dataset = Data.TensorDataset(test_x_set, test_y_set)
+    test_loader = Data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
+    test(model)
+
     setup_seed(SEED)  # set random seed to ensure reproducibility
     # device = torch.device('cuda:'+args.GPU_NUM if torch.cuda.is_available() else 'cpu') # Device configuration
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
     timestamp()
-    train_loader, val_loader, test_loader = build_dataloader(x_set, y_set, BATCH_SIZE)
+    train_loader, val_loader = build_dataloader(x_set, y_set, BATCH_SIZE)
     # model
     model = TransformerClassifier(num_bands, num_classes, d_model, nhead, num_layers, dim_feedforward, sequence_length).to(device)
     save_hyperparameters()
@@ -297,6 +297,7 @@ if __name__ == "__main__":
         writer.close() #why not writer.flush? what is the difference #WTF
 
     torch.save(model, f'/home/j/data/outputs/models/MORE.pkl')
+    # test loader
 
     # visualize loss and accuracy during training and validation
     model.load_state_dict(torch.load(MODEL_PATH))

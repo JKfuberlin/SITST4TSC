@@ -173,3 +173,18 @@ def list_to_dataframe(lst:List[List[float]], cols:List[str], decimal:bool=True) 
     else:
         df = df.astype('int')
     return df
+
+### Dangerzone, no comments, no explanations:
+def list_to_dataframe(lst:List[List[float]], cols:List[str], decimal:bool=True) -> pd.DataFrame:
+    """Transfer list to pd.DataFrame"""
+    df = pd.DataFrame(lst, columns=cols)
+    if decimal:
+        df = df.round(2)
+    else:
+        df = df.astype('int')
+    return df
+
+def export(df:pd.DataFrame, file_path:str, index:bool=True) -> None:
+    """Export pandas.Dataframe to csv file"""
+    df.to_csv(file_path, index=index)
+    print(f'export file {file_path}')
