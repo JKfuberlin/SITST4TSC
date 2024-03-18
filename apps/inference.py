@@ -66,6 +66,8 @@ parser.add_argument("--log-file", dest="log-file", required=False, type=str,
                     help="If logging is enabled, write to this file. If omitted, logs are written to stdout.")
 parser.add_argument("--cpus", dest="cpus", required=False, default=None, type=int,
                     help="Number of CPUS for Inter-OP and Intra-OP parallelization of pytorch.")
+parser.add_argument("--batch-size", dest="batch-size", required=False, type=int, default=1024,
+                    help="Batch size used during inference when using Transformer DL models. Default is 1024.")
 
 cli_args: Dict[str, Union[Path, int, bool, str]] = vars(parser.parse_args())
 
@@ -183,7 +185,7 @@ for tile in FORCE_tiles:
                                                                                     col, col_step, row, row_step)
             else:
                 output_torch[row:row + row_step, col:col + col_step] = predict_transformer(inference_model, s2_cube_torch, mask,
-                                                                                           col, col_step, row, row_step, 1024)
+                                                                                           col, col_step, row, row_step, cli_args.get("batch-size"))
                         
             logging.info(f"Processed chunk in {time() - start_chunked:.2f} seconds")
 
