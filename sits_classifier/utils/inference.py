@@ -96,7 +96,7 @@ def predict_transformer(transformer: torch.nn.Transformer, dc: torch.tensor, mas
         for _, batch in enumerate(dl):
             for jdx, samples in enumerate(batch):
                 subset: torch.Tensor = mask_long[jdx * bs:jdx * bs + len(samples)]
-                input_tensor: torch.Tensor = samples.cuda(non_blocking=True)[subset]  # moving to GPU -> subsetting vs. subsetting -> moving to GPU does not seem to make a difference speed-wise
+                input_tensor: torch.Tensor = samples[subset].cuda(non_blocking=True)  # orering of subsetting and moving makes little to no difference time-wise but big difference memory-wise
                 prediction[jdx * bs:jdx * bs + len(samples)][subset] = predict(transformer, input_tensor, ModelType.TRANSFORMER).cpu()
     else:
         for _, batch in enumerate(dl):
