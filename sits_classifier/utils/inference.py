@@ -83,27 +83,25 @@ def predict_lstm(lstm: torch.nn.LSTM, dc: torch.tensor, mask: Optional[np.ndarra
 # TODO remove unused function parameters
 # TODO logging inside function?
 @torch.inference_mode()
-def predict_transformer(transformer: torch.nn.Transformer, dc: torch.tensor, mask: Optional[np.ndarray], c: int, c_step: int, r: int, r_step: int, device: str) -> torch.tensor:
-    BATCH_SIZE = 1024
+def predict_transformer(transformer: torch.nn.Transformer, dc: torch.tensor, mask: Optional[np.ndarray], c: int, c_step: int, r: int, r_step: int, bs: int) -> torch.tensor:
     rows, _ = dc.shape[:2]
     split_dc = [torch.squeeze(i, dim=0) for i in torch.vsplit(dc, rows)]
     # slightly slower approach but easier to capture output
     ds = torch.utils.data.TensorDataset(torch.cat(split_dc, 0))  # TensorDataset splits along first dimension of input
-    dl = torch.utils.data.DataLoader(ds, batch_size=BATCH_SIZE, pin_memory=True, num_workers=4, persistent_workers=True)
-    mask_long: torch.Tensor = torch.from_numpy(np.reshape(mask, (-1,))).int()
+    dl = torch.utils.data.DataLoader(ds, batch_size=bs, pin_memory=True, num_workers=4, persistent_workers=True)
     prediction: torch.Tensor = torch.zeros((c_step * r_step,), dtype=torch.long)
 
     if mask is not None:
-        print("Using Masks")
+        mask_long: torch.Tensor = torch.from_numpy(np.reshape(mask, (-1,))).bool()
         for _, batch in enumerate(dl):
             for jdx, samples in enumerate(batch):
-                subset: torch.Tensor = mask_long[jdx * BATCH_SIZE:jdx * BATCH_SIZE + len(samples)]
-                input_tensor: torch.Tensor = samples.cuda(non_blocking=True)[subset]
-                prediction[jdx * BATCH_SIZE:jdx * BATCH_SIZE + len(samples)][subset] = predict(transformer, input_tensor, ModelType.TRANSFORMER).cpu()
+                subset: torch.Tensor = mask_long[jdx * bs:jdx * bs + len(samples)]
+                input_tensor: torch.Tensor = samples.cuda(non_blocking=True)[subset]  # moving to GPU -> subsetting vs. subsetting -> moving to GPU does not seem to make a difference speed-wise
+                prediction[jdx * bs:jdx * bs + len(samples)][subset] = predict(transformer, input_tensor, ModelType.TRANSFORMER).cpu()
     else:
         for _, batch in enumerate(dl):
             for jdx, samples in enumerate(batch):
-                prediction[jdx * BATCH_SIZE:jdx * BATCH_SIZE + len(samples)] = predict(transformer, samples.cuda(non_blocking=True), ModelType.TRANSFORMER).cpu()
+                prediction[jdx * bs:jdx * bs + len(samples)] = predict(transformer, samples.cuda(non_blocking=True), ModelType.TRANSFORMER).cpu()
 
     return torch.reshape(prediction, (r_step, c_step))
 

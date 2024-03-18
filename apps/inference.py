@@ -183,7 +183,7 @@ for tile in FORCE_tiles:
                                                                                     col, col_step, row, row_step)
             else:
                 output_torch[row:row + row_step, col:col + col_step] = predict_transformer(inference_model, s2_cube_torch, mask,
-                                                                                           col, col_step, row, row_step, device)
+                                                                                           col, col_step, row, row_step, 1024)
                         
             logging.info(f"Processed chunk in {time() - start_chunked:.2f} seconds")
 
