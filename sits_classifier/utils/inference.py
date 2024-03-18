@@ -101,7 +101,7 @@ def predict_transformer(transformer: torch.nn.Transformer, dc: torch.tensor, mas
                 input_tensor: torch.Tensor = samples.cuda(non_blocking=True)[subset]
                 prediction[jdx * BATCH_SIZE:jdx * BATCH_SIZE + len(samples)][subset] = predict(transformer, input_tensor, ModelType.TRANSFORMER).cpu()
     else:
-        for idx, batch in enumerate(dl):
+        for _, batch in enumerate(dl):
             for jdx, samples in enumerate(batch):
                 prediction[jdx * BATCH_SIZE:jdx * BATCH_SIZE + len(samples)] = predict(transformer, samples.cuda(non_blocking=True), ModelType.TRANSFORMER).cpu()
 
