@@ -103,13 +103,11 @@ def to_numpy(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     return x_data, y_data
 def to_numpy_subset(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     """Load label and time series data, transfer them to numpy array"""
-    labels = labels # at this point we already created cleaned up labels from a previous function
-    # Step 1: find max time steps
+    # Step 1: find maximum sequence length of observations
     max_len = 0
-    # TODO: something is messed up with the column names, i think naming one of them "ID" is a bad idea as it somehow gets switched around with the index
     for id in labels['ID']:
         df_path = os.path.join(data_dir, f'{id}.csv')
-        df = custom_load(df_path, 'date', True)
+        df = pd.read_csv(df_path, sep=',', header=0, index_col=False)
         max_len = max(max_len, df.shape[0])
     print(f'max sequence length: {max_len}')
     # Step 2: transfer to numpy array
@@ -119,7 +117,7 @@ def to_numpy_subset(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
         info = tuple[1] # access the first element of the tuple, which is a <class 'pandas.core.series.Series'>
         ID = info[0] # the true value for the ID after NA removal and some messing up is here, this value identifies the csv
         df_path = os.path.join(data_dir, f'{ID}.csv')
-        df = custom_load(df_path, 'date', True)
+        df = pd.read_csv(df_path, sep=',', header=0, index_col=False)
         df = df.drop('date', axis=1)  # i decided to drop the date again because i cannot convert it to float32 and i still have DOY for identification
         x = np.array(df).astype(np.float32) # create a new numpy array from the loaded csv file containing spectral values with the dataype float32
         # use 0 padding make sequence length equal

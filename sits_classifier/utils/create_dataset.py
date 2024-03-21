@@ -3,45 +3,41 @@ import torch
 from torch import nn, Tensor
 import sits_classifier.utils.csv_utils as csv_utils
 import os
+import pandas as pd
 
 # # settings
-# PATH = '/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/'
-PATH = '/home/j/data/csv_bi/'
-DATA_DIR = os.path.join(PATH, 'pxl_balanced_subset_reshape/')
-LABEL_CSV = 'BI_labels_unbalanced.csv'
-LABEL_PATH = os.path.join('/home/j/data/', LABEL_CSV)
-
+PATH = '/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data'
+DATA_DIR = os.path.join(PATH, 'pxl_unbalanced_buffered_reshaped_standardized')
+LABEL_PATH = '/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl_buffered_labels_balanced_species.csv'
 
 def numpy_to_tensor(x_data: np.ndarray, y_data: np.ndarray) -> tuple[Tensor, Tensor]:
     """Transfer numpy.ndarray to torch.tensor, and necessary pre-processing like embedding or reshape"""
     y_data = y_data.reshape(-1)  # This reshapes the y_data numpy array from a 2-dimensional array with shape (n, 1) to a 1-dimensional array with shape (n, ).
     x_set = torch.from_numpy(x_data)
     y_set = torch.from_numpy(y_data)
-    # standardization:
-    sz, seq, num_bands = x_set.size(0), x_set.size(1), x_set.size(2)  # retrieve amount of samples, sequence length and num_bands from tensor object
-    x_set = x_set.view(-1,num_bands)  # use view method to reshape, first arg size of dimension being inferred, arg2 is
-    # number of columns in the tensor
-    # need to reshape in order to apply batch_norm
-    # see Annex 1
-    # batch_norm = nn.BatchNorm1d(num_bands)  # Create a BatchNorm1d layer with `num_bands` as the number of input features.
-    # x_set: Tensor = batch_norm(x_set)  # standardization is used to improve convergence, should lead to values between 0 and 1
-    s2_cube_np = (x_set - x_set.mean(axis=0)) / (x_set.std(axis=0) + 1e-6) # compare numpy normalization, result: it is identical to nn.BatchNorm1d
     x_set = s2_cube_np.view(sz, seq,num_bands).detach()  # sz is the amount of samples, seq is the sequence length, and num_bands is the number of features
     # The `.detach()` method is necessary here to create a new tensor that is "detached from the computation graph" as we only want to apply this normalization once
     # .detach prevents gradients from flowing backward through a tensor.
     return x_set, y_set
 
-
-# the thing about standardization is whether to normalize each band separately or all the values at once. in this
-# case, nn.BatchNorm1d(num_bands), each band is normalized individually afaik in case all values are merged there is
-# the problem of inclusion of date/DOY values at this point of development. These columns should be removed from the
-# dataset beforehand.
-
 if __name__ == "__main__":
-    balance = False
-    labels = csv_utils.balance_labels_subset(LABEL_PATH, DATA_DIR, balance)  # remove y_data with no correspondence in DATA_DIR and optionally
+    labels = pd.read_csv(LABEL_PATH, sep=',', header=0, index_col=False)
+    print(len(labels))
+    labels.dropna(inplace = True)
+    print(len(labels))
+    labels = labels.astype(int)
     x_data, y_data = csv_utils.to_numpy_subset(DATA_DIR, labels)  # turn csv file into numpy dataset while balancing the data based on minority class in dataset
     x_data = x_data[:, :, 1:12] # 1 - 12 subsets all bands + DOY
     x_set, y_set = numpy_to_tensor(x_data, y_data)  # turn dataset into tensor format
     torch.save(x_set, '/home/j/data/x_set_buffered_pxl.pt')
     torch.save(y_set, '/home/j/data/y_set_buffered_pxl.pt')
+
+# Annex 1 tensor.view() vs tensor.reshape()
+#     view method:
+#         The view method returns a new tensor that shares the same data with the original tensor but with a different shape.
+#         If the new shape is compatible with the original shape (i.e., the number of elements remains the same), the view method can be used.
+#         However, if the new shape is not compatible with the original shape (i.e., the number of elements changes), the view method will raise an error.
+#
+#     reshape method:
+#         The reshape method also returns a new tensor with a different shape, but it may copy the data to a new memory location if necessary.
+#         It allows reshaping the tensor even when the number of elements changes, as long as the new shape is compatible with the total number of elements in the tensor.
