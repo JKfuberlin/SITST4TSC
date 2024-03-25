@@ -16,7 +16,7 @@ import xarray
 import logging
 from time import time
 from sits_classifier import models
-from sits_classifier.utils.inference import ModelType, fp_to_doy, predict_lstm, predict_transformer, pad_doy_sequence, pad_datacube
+from sits_classifier.utils.inference import ModelType, fp_to_doy, predict_lstm, predict_transformer, pad_doy_sequence, pad_datacube, OUTPUT_NODATA
 
 parser: argparse.ArgumentParser = argparse.ArgumentParser(
     description="Run inference with already trained LSTM classifier on a remote-sensing time series represented as "
@@ -113,12 +113,12 @@ for tile in FORCE_tiles:
         metadata = f.meta
         input_bands, metadata["count"] = metadata["count"], 1
         metadata["dtype"] = rasterio.uint8
-        metadata["nodata"] = 0
+        metadata["nodata"] = OUTPUT_NODATA
         row_block, col_block = f.block_shapes[0]
 
     tile_rows: int = metadata["height"]
     tile_cols: int = metadata["width"]
-    output_torch: torch.tensor = torch.zeros([tile_rows, tile_cols], dtype=torch.long)
+    output_torch: torch.tensor = torch.full([tile_rows, tile_cols], fill_value=OUTPUT_NODATA, dtype=torch.long)
 
     row_step: int = cli_args.get("row-block") or row_block
     col_step: int = cli_args.get("col-block") or col_block
@@ -182,10 +182,10 @@ for tile in FORCE_tiles:
             logging.info(f"Starting prediction")
             if inference_type == ModelType.LSTM:
                 output_torch[row:row + row_step, col:col + col_step] = predict_lstm(inference_model, s2_cube_torch, mask,
-                                                                                    col, col_step, row, row_step)
+                                                                                    col_step, row_step)
             else:
                 output_torch[row:row + row_step, col:col + col_step] = predict_transformer(inference_model, s2_cube_torch, mask,
-                                                                                           col, col_step, row, row_step, cli_args.get("batch-size"))
+                                                                                           col_step, row_step, cli_args.get("batch-size"))
                         
             logging.info(f"Processed chunk in {time() - start_chunked:.2f} seconds")
 

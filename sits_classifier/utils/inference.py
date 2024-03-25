@@ -14,6 +14,8 @@ class ModelType(Enum):
     UNDEFINED   = 3
 
 
+OUTPUT_NODATA: int = 255
+
 def pad_doy_sequence(target: int, observations: List[datetime]) -> List[Union[datetime, float]]:
     diff: int = target - len(observations)
     if diff < 0:
@@ -61,10 +63,10 @@ def predict(model, data: torch.tensor, it: ModelType) -> Any:
     return predicted
 
 
-def predict_lstm(lstm: torch.nn.LSTM, dc: torch.tensor, mask: Optional[np.ndarray], c: int, c_step: int, r: int, r_step: int) -> torch.tensor:
-    prediction: torch.Tensor = torch.zeros((r_step, c_step), dtype=torch.long)
+def predict_lstm(lstm: torch.nn.LSTM, dc: torch.tensor, mask: Optional[np.ndarray], c_step: int, r_step: int) -> torch.tensor:
+    prediction: torch.Tensor = torch.full((r_step * c_step,), fill_value=OUTPUT_NODATA, dtype=torch.long)
     if mask:
-        merged_row: torch.Tensor = torch.zeros(c_step, dtype=torch.long)
+        merged_row: torch.Tensor = torch.full(c_step, fill_value=OUTPUT_NODATA, dtype=torch.long)
         for chunk_rows in range(0, r_step):
             merged_row.zero_()
             squeezed_row: torch.Tensor = predict(
@@ -80,28 +82,32 @@ def predict_lstm(lstm: torch.nn.LSTM, dc: torch.tensor, mask: Optional[np.ndarra
     return prediction
 
 
-# TODO remove unused function parameters
-# TODO logging inside function?
 @torch.inference_mode()
-def predict_transformer(transformer: torch.nn.Transformer, dc: torch.tensor, mask: Optional[np.ndarray], c: int, c_step: int, r: int, r_step: int, bs: int) -> torch.tensor:
+def predict_transformer(transformer: torch.nn.Transformer, dc: torch.tensor, mask: Optional[np.ndarray], c_step: int, r_step: int, batch_size: int) -> torch.tensor:
     rows, _ = dc.shape[:2]
     split_dc = [torch.squeeze(i, dim=0) for i in torch.vsplit(dc, rows)]
     # slightly slower approach but easier to capture output
-    ds = torch.utils.data.TensorDataset(torch.cat(split_dc, 0))  # TensorDataset splits along first dimension of input
-    dl = torch.utils.data.DataLoader(ds, batch_size=bs, pin_memory=True, num_workers=4, persistent_workers=True)
-    prediction: torch.Tensor = torch.zeros((c_step * r_step,), dtype=torch.long)
+    ds: TensorDataset = TensorDataset(torch.cat(split_dc, 0))  # TensorDataset splits along first dimension of input
+    dl: DataLoader = DataLoader(ds, batch_size=batch_size, pin_memory=True, num_workers=4, persistent_workers=True)
+    prediction: torch.Tensor = torch.full((r_step * c_step,), fill_value=OUTPUT_NODATA, dtype=torch.long)
 
     if mask is not None:
         mask_long: torch.Tensor = torch.from_numpy(np.reshape(mask, (-1,))).bool()
-        for _, batch in enumerate(dl):
-            for jdx, samples in enumerate(batch):
-                subset: torch.Tensor = mask_long[jdx * bs:jdx * bs + len(samples)]
-                input_tensor: torch.Tensor = samples[subset].cuda(non_blocking=True)  # orering of subsetting and moving makes little to no difference time-wise but big difference memory-wise
-                prediction[jdx * bs:jdx * bs + len(samples)][subset] = predict(transformer, input_tensor, ModelType.TRANSFORMER).cpu()
+        for batch_index, batch in enumerate(dl):
+            for _, samples in enumerate(batch):
+                start: int = batch_index * batch_size
+                end: int = start + len(samples)
+                subset: torch.Tensor = mask_long[start:end]
+                if not torch.any(subset):
+                    next
+                input_tensor: torch.Tensor = samples[subset].cuda(non_blocking=True)  # ordering of subsetting and moving makes little to no difference time-wise but big difference memory-wise
+                prediction[start:end][subset] = predict(transformer, input_tensor, ModelType.TRANSFORMER).cpu()
     else:
-        for _, batch in enumerate(dl):
-            for jdx, samples in enumerate(batch):
-                prediction[jdx * bs:jdx * bs + len(samples)] = predict(transformer, samples.cuda(non_blocking=True), ModelType.TRANSFORMER).cpu()
+        for batch_index, batch in enumerate(dl):
+            for _, samples in enumerate(batch):
+                start: int = batch_index * batch_size
+                end: int = start + len(samples)
+                prediction[start:end] = predict(transformer, samples.cuda(non_blocking=True), ModelType.TRANSFORMER).cpu()
 
     return torch.reshape(prediction, (r_step, c_step))
 
