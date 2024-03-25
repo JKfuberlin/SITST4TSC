@@ -13,16 +13,31 @@ import torch # Pytorch - DL framework
 from torch import nn, optim, Tensor
 import torch.utils.data as Data
 import os # for creating dirs if needed
+from captum.attr import ( # explainable AI
+    GradientShap,
+    DeepLift,
+    DeepLiftShap,
+    IntegratedGradients,
+    FeatureAblation,
+    LayerConductance,
+    NeuronConductance,
+    NoiseTunnel,
+    Saliency,
+    visualization as viz,
+    configure_interpretable_embedding_layer,
+    remove_interpretable_embedding_layer
+)
 sys.path.append('../') # navigating one level up to access all modules
 
-# explainable AI:
-
+# flags
 GROMIT = True
 PARSE = False
 LOG = False
+DOYPLUS = False # if True, additive DOY for several years is used
+
 if LOG:
     logfile = '/tmp/logfile_transformer_pxl' # for logging model Accuracy
-'''call http://localhost:6006/ for tensorboard to review profiling'''
+    #call http://localhost:6006/ for tensorboard to review profiling
 
 if PARSE:
     parser = argparse.ArgumentParser(description='trains the Transformer with given parameters')
@@ -159,7 +174,8 @@ def train(model:nn.Module, epoch:int, prof = None) -> tuple[float, float]:
         # at this point inputs is 305,3,11. 305 [timesteps, batch_size, num_bands]
         loss = criterion(outputs, labels)  # calculating loss by comparing to the y_set
         # recording training accuracy
-        good_pred += val.true_pred_num(labels, outputs)
+        predicted_labels = torch.argmax(outputs,dim=1)  # outputs is a vector containing the probabilities for each class so we need to find the corresponding class
+        good_pred += torch.sum(predicted_labels == labels).item()  # recording correct predictions
         total += labels.size(0)
         # record training loss
         losses.append(loss.item())
@@ -185,7 +201,7 @@ def validate(model:nn.Module) -> tuple[float, float]:
             # batch = torch.permute(batch, (1, 0, 2))
             labels:Tensor = labels.to(device)
             outputs:Tensor = model(batch) # prediction
-            loss = criterion(outputs, labels)
+            loss = criterion(outputs, labels)  # calculating loss by comparing to the y_set
             good_pred += val.true_pred_num(labels, outputs)# recording validation accuracy
             total += labels.size(0)
             losses.append(loss.item()) # record validation loss
@@ -195,11 +211,6 @@ def validate(model:nn.Module) -> tuple[float, float]:
     if LOG:
         writer.add_scalar("Accuracy", acc, epoch)
     return val_loss, acc
-
-# test() function is not used at the moment because i use the maps created by each model architecture and set of hyperparameters
-# to determine accuracy using a completely independent validation dataset.
-# However i might use some extra data from Betriebsinventur to compare models within this workflow in the future
-# then i should take the test function from Dongshen's branch
 def test(model:nn.Module) -> None:
     """Test best model"""
     model.eval()
@@ -220,30 +231,28 @@ def test(model:nn.Module) -> None:
     return
 
 if __name__ == "__main__":
-    model = torch.load('/home/j/data/outputs/models/lqnld.pkl', map_location=torch.device("cuda:1"))
-    test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
-    test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
-    dataset = Data.TensorDataset(test_x_set, test_y_set)
-    test_loader = Data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
-    test(model)
-
+    # model = torch.load('/home/j/data/outputs/models/lqnld.pkl', map_location=torch.device("cuda:1"))
+    # test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
+    # test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
+    # test_dataset = Data.TensorDataset(test_x_set, test_y_set)
+    # test_loader = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
+    # test(model)
     setup_seed(SEED)  # set random seed to ensure reproducibility
     # device = torch.device('cuda:'+args.GPU_NUM if torch.cuda.is_available() else 'cpu') # Device configuration
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
     timestamp()
-    train_loader, val_loader = build_dataloader(x_set, y_set, BATCH_SIZE)
-    # model
+    train_loader, val_loader = build_dataloader(x_set, y_set, BATCH_SIZE) # convert the loaded samples and labels into a dataloader object
     model = TransformerClassifier(num_bands, num_classes, d_model, nhead, num_layers, dim_feedforward, sequence_length).to(device)
     save_hyperparameters()
-    criterion = nn.CrossEntropyLoss().to(device)
-    optimizer = optim.Adam(model.parameters(), LR)
+    criterion = nn.CrossEntropyLoss().to(device) # define the calculation of loss during training and validation
+    optimizer = optim.Adam(model.parameters(), LR) # define how to optimize the model during backpropagation
     softmax = nn.Softmax(dim=1).to(device)
     # evaluate terms
     train_epoch_loss = []
     val_epoch_loss = []
     train_epoch_acc = [0]
     val_epoch_acc = [0]
-    # train and validate model
+    # start training and validation of the model
     print("start training")
     timestamp()
     # initialize the early_stopping object
@@ -251,13 +260,6 @@ if __name__ == "__main__":
     logdir = '/home/jonathan/data/prof'
     prof = None
     loss_idx_value = 0 # for the writer, logging scalars, whatever that means WTF
-    # with profile(activities=[ProfilerActivity.CPU],
-    #              schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
-    #              on_trace_ready=torch.profiler.tensorboard_trace_handler(logdir + "/profiler"),
-    #              record_shapes=True,
-    #              profile_memory=True,
-    #              with_stack=True
-    #              ) as prof:
     for epoch in range(EPOCH):
         if LOG:
             prof = torch.profiler.profile(
@@ -297,7 +299,65 @@ if __name__ == "__main__":
         writer.close() #why not writer.flush? what is the difference #WTF
 
     torch.save(model, f'/home/j/data/outputs/models/MORE.pkl')
-    # test loader
+    # test model:
+    model = torch.load('/home/j/data/outputs/models/lqnld.pkl', map_location=torch.device("cuda:1"))
+    test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
+    test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
+    test_dataset = Data.TensorDataset(test_x_set, test_y_set)
+    # test_loader = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
+    # test(model)
+
+    # explain model
+    model.zero_grad()
+    for iter in range(len(test_dataset)):
+        data = test_dataset[iter]
+        feature_mask = np.ones(shape=[422, 10])
+        for npiter in range(feature_mask.shape[1]):
+            feature_mask[:, npiter] = feature_mask[:, npiter] * npiter
+            ### convert to pytorch tensor
+        feature_mask = torch.tensor(feature_mask).long()
+
+        ### initialize Feature Ablation algorithm
+        ablator = FeatureAblation(model)
+        attribution = ablator.attribute(
+            inputs=data["bert_input"].float().unsqueeze(axis=0).to(device),
+            baselines=None,
+            target=None,
+            additional_forward_args=(
+                data["bert_mask"].long().unsqueeze(axis=0).to(device),
+                data["time"].long().unsqueeze(axis=0).to(device)),
+            feature_mask=feature_mask.unsqueeze(axis=0).to(device),
+            perturbations_per_eval=NUM_WORKERS,
+            show_progress=False
+        )
+
+        attribution = attribution.squeeze()
+        attribution = pd.DataFrame(attribution.detach().cpu().numpy())
+
+        ### column names:
+        df_cols = [os.path.join(band) for band in bands]
+        attribution.columns = df_cols
+
+        ### only first row is relevant, all other rows are duplicates
+        attribution = attribution.head(1)
+        # attribution.shape
+
+        if not os.path.exists(os.path.join(INPUT_DATA_PATH, 'model', 'attr_' + MODEL_NAME, 'feature_ablation')):
+            os.mkdir(os.path.join(INPUT_DATA_PATH, 'model', 'attr_' + MODEL_NAME, 'feature_ablation'))
+
+        ### save dataframe to disk
+        attribution.to_csv(os.path.join(MODEL_SAVE_PATH, 'attr_' + MODEL_NAME, 'feature_ablation',
+                                        str(testdat["plotID"].iloc[iter]) + '_attr_label_' +
+                                        str(testdat["test_label"].iloc[iter]) + '_pred_' +
+                                        str(testdat["prediction"].iloc[iter]) +
+                                        str(np.where(
+                                            (testdat["mort_1"].iloc[iter] > 0) & (testdat["prediction"].iloc[iter] == 1)
+                                            or (testdat["mort_1"].iloc[iter] == 0) & (
+                                                        testdat["prediction"].iloc[iter] == 0),
+                                            '_correct', '_false')) +
+                                        '_extent_' + str(int(testdat["mort_1"].iloc[iter] * 100)) +
+                                        '_featabl.csv'),
+                           sep=';', index=False)
 
     # visualize loss and accuracy during training and validation
     model.load_state_dict(torch.load(MODEL_PATH))
@@ -306,29 +366,7 @@ if __name__ == "__main__":
     timestamp()
     # test(model)
     print('plot results successfully')
-
-    # explainable AI, show timeseries attributions
-    # visualize_timeseries_attr_cs(
-    #     attr,
-    #     data,
-    #     x_values=x_values,
-    #     method="individual_channels",
-    #     sign="absolute_value",
-    #     channel_labels=["Channel 1", "Channel 2", "Channel 3"],  # Replace with your actual channel labels
-    #     # Other parameters as needed
-    # )
     torch.save(model, f'/home/j/home/jonathan/data/outputs/models/{MODEL_NAME}.pkl')
     f = open(logfile, 'a')
     f.write("Model ID: " + str(UID) + "; validation accuracy: " + str(best_acc) + '\n')
     f.close()
-
-
-# Annex 1 tensor.view() vs tensor.reshape()
-#     view method:
-#         The view method returns a new tensor that shares the same data with the original tensor but with a different shape.
-#         If the new shape is compatible with the original shape (i.e., the number of elements remains the same), the view method can be used.
-#         However, if the new shape is not compatible with the original shape (i.e., the number of elements changes), the view method will raise an error.
-#
-#     reshape method:
-#         The reshape method also returns a new tensor with a different shape, but it may copy the data to a new memory location if necessary.
-#         It allows reshaping the tensor even when the number of elements changes, as long as the new shape is compatible with the total number of elements in the tensor.
