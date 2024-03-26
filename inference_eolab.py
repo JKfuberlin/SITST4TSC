@@ -33,7 +33,6 @@ EOLAB = False
 CLASSIFY = False # if True, map the class with the highest probability, else write the max probability (confidence) into raster
 
 if All == True:
-    print("dall'inizio")
     model_pkl = torch.load('/point_storage/data/Transformer_1.pkl', map_location=torch.device('cpu'))  # loading the trained model
     raster_paths = []
     #tile ="X0066_Y0056"

@@ -6,3 +6,4 @@ lqnld.pkl
 masks
 test.tif
 tiles.txt
+checkpoint.pt

@@ -101,13 +101,14 @@ def to_numpy(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     y_data = np.array(y_list)
     print("transferred data to numpy array")
     return x_data, y_data
-def to_numpy_subset(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
+
+def to_numpy_subset(data_dir:str, labels, SPECIES) -> Tuple[np.ndarray, np.ndarray]:
     """Load label and time series data, transfer them to numpy array"""
     # Step 1: find maximum sequence length of observations
     max_len = 0
     for id in labels['ID']:
         df_path = os.path.join(data_dir, f'{id}.csv')
-        df = pd.read_csv(df_path, sep=',', header=0, index_col=False)
+        df = pd.read_csv(df_path, sep=',', header=0)
         max_len = max(max_len, df.shape[0])
     print(f'max sequence length: {max_len}')
     # Step 2: transfer to numpy array
@@ -115,15 +116,17 @@ def to_numpy_subset(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     y_list = []
     for tuple in labels.iterrows():
         info = tuple[1] # access the first element of the tuple, which is a <class 'pandas.core.series.Series'>
-        ID = info[0] # the true value for the ID after NA removal and some messing up is here, this value identifies the csv
+        ID = info['ID'] # the true value for the ID after NA removal and some messing up is here, this value identifies the csv
         df_path = os.path.join(data_dir, f'{ID}.csv')
-        df = pd.read_csv(df_path, sep=',', header=0, index_col=False)
-        df = df.drop('date', axis=1)  # i decided to drop the date again because i cannot convert it to float32 and i still have DOY for identification
+        df = pd.read_csv(df_path, sep=',', header=0)
         x = np.array(df).astype(np.float32) # create a new numpy array from the loaded csv file containing spectral values with the dataype float32
         # use 0 padding make sequence length equal
         padding = np.zeros((max_len - x.shape[0], x.shape[1]))
         x = np.concatenate((x, padding), dtype=np.float32) # the 0s are appended to the end, will need to change this in the future to fill in missing observations
-        y = info[2] # this is the label
+        if SPECIES == True:
+            y = info['encoded'] # this is the label for the Tree species
+        else:
+            y = info['evergreen'] # this is the label for wether the observation is evergreen or not
         x_list.append(x)
         y_list.append(y)
     # concatenate array list

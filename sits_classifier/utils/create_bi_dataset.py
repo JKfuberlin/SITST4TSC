@@ -10,32 +10,23 @@ PATH = '/home/j/data/'
 DATA_DIR = os.path.join(PATH, 'csv_BI_reshaped/')
 LABEL_CSV = 'BI_labels_unbalanced.csv'
 LABEL_PATH = os.path.join('/home/j/data/', LABEL_CSV)
+FINETUNING = False
 
 def numpy_to_tensor(x_data: np.ndarray, y_data: np.ndarray) -> tuple[Tensor, Tensor]:
     """Transfer numpy.ndarray to torch.tensor, and necessary pre-processing like embedding or reshape"""
     y_data = y_data.reshape(-1)  # This reshapes the y_data numpy array from a 2-dimensional array with shape (n, 1) to a 1-dimensional array with shape (n, ).
     x_set = torch.from_numpy(x_data)
     y_set = torch.from_numpy(y_data)
-    x_set = np.nan_to_num(x_set, copy=False, nan=0)
-    # standardization:
-    sz, seq, num_bands = x_set.shape[0], x_set.shape[1], x_set.shape[2] # retrieve amount of samples, sequence length and num_bands from tensor object
-    # see Annex 1
-    # batch_norm = nn.BatchNorm1d(num_bands)  # Create a BatchNorm1d layer with `num_bands` as the number of input features.
-    # x_set: Tensor = batch_norm(x_set)  # standardization is used to improve convergence, should lead to values between 0 and 1
-    s2_cube_np = (x_set - x_set.mean(axis=0)) / (x_set.std(axis=0) + 1e-6) # compare numpy normalization, result: it is identical to nn.BatchNorm1d
-    x_set = torch.from_numpy(s2_cube_np).detach()  # The `.detach()` method is necessary here to create a new tensor that is "detached from the computation graph" as we only want to apply this normalization once
-    # .detach prevents gradients from flowing backward through a tensor.
+    sz, seq, num_bands = x_set.size(0), x_set.size(1), x_set.size(2) # retrieve size, sequence length and number of bands
+    x_set = x_set.view(sz, seq,num_bands) # sz is the amount of samples, seq is the sequence length, and num_bands is the number of features
     return x_set, y_set
 
-
-# the thing about standardization is whether to normalize each band separately or all the values at once. in this
-# case, nn.BatchNorm1d(num_bands), each band is normalized individually afaik in case all values are merged there is
-# the problem of inclusion of date/DOY values at this point of development. These columns should be removed from the
-# dataset beforehand.
-
 if __name__ == "__main__":
-    balance = False
-    labels = csv_utils.balance_labels_subset(LABEL_PATH, DATA_DIR, balance)  # remove y_data with no correspondence in DATA_DIR and optionally
+    labels = pd.read_csv(LABEL_PATH, sep=',', header=0) 
+    len(labels)
+    labels.dropna(inplace = True) # somehow a line is interpreted as NA, most probably the header
+    len(labels)
+    labels = labels.astype(int)
     x_data, y_data = csv_utils.to_numpy_BI(DATA_DIR, labels)  # turn csv file into numpy dataset while balancing the data based on minority class in dataset
     # x_data = x_data[:, :, 1:12] # 1 - 12 subsets all bands + DOY
     x_set, y_set = numpy_to_tensor(x_data, y_data)  # turn dataset into tensor format
