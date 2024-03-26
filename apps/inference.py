@@ -68,6 +68,8 @@ parser.add_argument("--cpus", dest="cpus", required=False, default=None, type=in
                     help="Number of CPUS for Inter-OP and Intra-OP parallelization of pytorch.")
 parser.add_argument("--batch-size", dest="batch-size", required=False, type=int, default=1024,
                     help="Batch size used during inference when using Transformer DL models. Default is 1024.")
+parser.add_argument("--gpu", dest="gpu", required=False, type=str, default="cuda:0",
+                    help="Select a GPU. Default is 'cuda:0'.")
 
 cli_args: Dict[str, Union[Path, int, bool, str]] = vars(parser.parse_args())
 
@@ -81,7 +83,7 @@ if (cli_args.get("cpus")):
     torch.set_num_threads(cli_args.get("cpus"))
     torch.set_num_interop_threads(cli_args.get("cpus"))
 
-device: str = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device: str = torch.device(cli_args.get("gpu") if torch.cuda.is_available() else 'cpu')
 
 inference_model: Union[torch.nn.LSTM, torch.nn.Transformer] = torch.load(cli_args.get("weights"), map_location=device).eval()
 
@@ -89,17 +91,16 @@ if "lstm" in inference_model.__module__.lower():
     inference_type: ModelType = ModelType.LSTM
 elif "transformer" in inference_model.__module__.lower():
     inference_type: ModelType = ModelType.TRANSFORMER
+    ttl: int = inference_model.sequence_length
 else:
     raise RuntimeError("Unknown model type supplied")
 
 with open(cli_args.get("input"), "rt") as f:
-    FORCE_tiles: List[str] = [tile.replace("\n", "") for tile in f.readlines()]
-
-TRANSFORMER_TARGET_LENGTH: int = 329  # TODO get from transformer class, if implemented?
+    force_tiles: List[str] = [tile.replace("\n", "") for tile in f.readlines()]
 
 mp.set_sharing_strategy("file_system")
 
-for tile in FORCE_tiles:
+for tile in force_tiles:
     start: float = time()
     logging.info(f"Processing FORCE tile {tile}")
     s2_tile_dir: Path = cli_args.get("base") / tile
@@ -143,12 +144,12 @@ for tile in FORCE_tiles:
                         
             if inference_type ==  ModelType.TRANSFORMER:
                 logging.info("Padding data cube, adding Doy information")
-                sensing_doys: List[Union[datetime, float]] = pad_doy_sequence(TRANSFORMER_TARGET_LENGTH, [fp_to_doy(it) for it in cube_inputs])
+                sensing_doys: List[Union[datetime, float]] = pad_doy_sequence(ttl, [fp_to_doy(it) for it in cube_inputs])
                 sensing_doys_np: np.ndarray = np.array(sensing_doys)
-                sensing_doys_np = sensing_doys_np.reshape((TRANSFORMER_TARGET_LENGTH, 1, 1, 1))
+                sensing_doys_np = sensing_doys_np.reshape((ttl, 1, 1, 1))
                 sensing_doys_np = np.repeat(sensing_doys_np, row_step, axis=2)  # match actual data cube
                 sensing_doys_np = np.repeat(sensing_doys_np, col_step, axis=3)  # match actual data cube
-                s2_cube_np = pad_datacube(TRANSFORMER_TARGET_LENGTH, s2_cube_np)
+                s2_cube_np = pad_datacube(ttl, s2_cube_np)
                 s2_cube_np = np.concatenate((s2_cube_np, sensing_doys_np), axis=1)
 
             if inference_type == ModelType.TRANSFORMER:
