@@ -32,12 +32,7 @@ sys.path.append('../') # navigating one level up to access all modules
 # flags
 GROMIT = True
 PARSE = False
-LOG = False
-DOYPLUS = False # if True, additive DOY for several years is used
-
-if LOG:
-    logfile = '/tmp/logfile_transformer_pxl' # for logging model Accuracy
-    #call http://localhost:6006/ for tensorboard to review profiling
+SEASONDOY = False
 
 if PARSE:
     parser = argparse.ArgumentParser(description='trains the Transformer with given parameters')
@@ -58,33 +53,30 @@ if PARSE:
     UID = str(args.UID)
     print(f"UID = {UID}")
 else:
-    d_model = 512 # i want model dimension fit DOY_sequence length for now
-    # d_model = 128
-    nhead = 4 # AssertionError: embed_dim must be divisible by num_heads
+    d_model = 512 
+    nhead = 4 # avoid AssertionError: embed_dim must be divisible by num_heads
     num_layers = 6
     dim_feedforward = 256
     BATCH_SIZE = 16
 
 if GROMIT:
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')  # Device configuration
-    print(device)
     UID = 2
     PATH = '/home/j/data/'
     MODEL = 'Transformer'
     MODEL_NAME = MODEL + '_' + str(UID)
     MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME
-    x_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl.pt')
-    y_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/y_set_pxl.pt')
-    d_model = 512 # i want model dimension fit DOY_sequence length for now
-    # d_model = 128
-    nhead = 8 # AssertionError: embed_dim must be divisible by num_heads
+    if SEASONDOY:
+        x_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_season.pt')
+    else:
+        x_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_years.pt')
+    y_set = torch.load('/home/j/data/y_set_pxl_buffered_balanced_species.pt')
+    d_model = 512 
+    nhead = 8 # avoid AssertionError: embed_dim must be divisible by num_heads
     num_layers = 3
     dim_feedforward = 4096
     BATCH_SIZE = 16
     EPOCH = 420
     LR = 0.00001  # learning rate, which in theory could be within the scope of parameter tuning
-    if LOG:
-        writer = SummaryWriter(log_dir='/home/j/data/prof/')  # initialize tensorboard
 else:
     UID = 999
     x_set = torch.load('/home/j/data/x_set.pt')
@@ -95,12 +87,10 @@ else:
     MODEL_PATH = '/home/jonathan/data/outputs/models/' + MODEL_NAME
     EPOCH = 420  # the maximum amount of epochs i want to train
     LR = 0.00001  # learning rate, which in theory could be within the scope of parameter tuning
-    if LOG:
-        writer = SummaryWriter(log_dir='/home/jonathan/data/prof/')  # initialize tensorboard
 
 # general hyperparameters
 SEED = 420 # a random seed for reproduction, at some point i should try different random seeds to exclude (un)lucky draws
-patience = 25 # early stopping patience; how long to wait after last time validation loss improved.
+patience = 5 # early stopping patience; how long to wait after last time validation loss improved.
 num_bands = 10 # number of different bands from Sentinel 2
 num_classes = 10 # the number of different classes that are supposed to be distinguished
 sequence_length = x_set.size(1) # this retrieves the sequence length from the x_set tensor
@@ -116,8 +106,8 @@ def build_dataloader(x_set:Tensor, y_set:Tensor, batch_size:int) -> tuple[Data.D
     train_size, val_size = round(0.8 * size), round(0.2 * size)
     generator = torch.Generator() # this is for random sampling
     train_dataset, val_dataset = Data.random_split(dataset, [train_size, val_size], generator) # split the data in train and validation
-    train_loader = Data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=False) # Create PyTorch data loaders from the datasets
-    val_loader = Data.DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=False)
+    train_loader = Data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False) # Create PyTorch data loaders from the datasets
+    val_loader = Data.DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False)
     # num_workers is for parallelizing this function, however i need to set it to 1 on the HPC
     # shuffle is True so data will be shuffled in every epoch, this probably is activated to decrease overfitting
     # drop_last = False makes sure, the entirety of the dataset is used even if the remainder of the last samples is fewer than batch_size
@@ -165,11 +155,8 @@ def train(model:nn.Module, epoch:int, prof = None) -> tuple[float, float]:
     total = 0
     losses = []
     for (batch, labels) in (train_loader): # unclear whether i need to use enumerate(train_loader) or not
-        # print(batch.size()) # looks correct: torch.Size([32, 305, 11]), last element torch.Size([3, 305, 11]) because there are only 3 left after drop_last=False
         labels = labels.to(device) # tensor [batch_size,] e.g. 32 labels in a tensor
-        inputs = batch.to(device) # pass the data into the gpu [3 / 32, 305, 11] batch_size, sequence max length, num_bands
-        # inputs = torch.permute(inputs, (1, 0, 2))  # i need to switch the dimensions compared to LSTM to make the tensor match with the
-        # labels # from transformer.forward src: [seq_len, batch_sz, num_bands]
+        inputs = batch.to(device) # pass the data into the gpu [32, 305, 11] batch_size, sequence max length, num_bands
         outputs = model(inputs)  # applying the model
         # at this point inputs is 305,3,11. 305 [timesteps, batch_size, num_bands]
         loss = criterion(outputs, labels)  # calculating loss by comparing to the y_set
@@ -177,17 +164,13 @@ def train(model:nn.Module, epoch:int, prof = None) -> tuple[float, float]:
         predicted_labels = torch.argmax(outputs,dim=1)  # outputs is a vector containing the probabilities for each class so we need to find the corresponding class
         good_pred += torch.sum(predicted_labels == labels).item()  # recording correct predictions
         total += labels.size(0)
-        # record training loss
-        losses.append(loss.item())
-        # backward and optimize
-        optimizer.zero_grad()
+        losses.append(loss.item())  # recording training loss
+        optimizer.zero_grad() # backward and optimize
         loss.backward()
         optimizer.step()
     acc = good_pred / total
     train_loss = np.average(losses)
     print('Epoch[{}/{}] | Train Loss: {:.4f} | Train Accuracy: {:.2f}% '.format(epoch + 1, EPOCH, train_loss, acc * 100), end="")
-    if LOG and 'prof' in locals():
-        prof.step() # Need to call this at the end of each step to notify profiler of steps' boundary.
     return train_loss, acc
 def validate(model:nn.Module) -> tuple[float, float]:
     model.eval()
@@ -196,9 +179,7 @@ def validate(model:nn.Module) -> tuple[float, float]:
         total = 0
         losses = []
         for (inputs, labels) in val_loader:
-            # inputs = inputs[:, :, 0:10] # this
             batch:Tensor = inputs.to(device)# put the data in gpu
-            # batch = torch.permute(batch, (1, 0, 2))
             labels:Tensor = labels.to(device)
             outputs:Tensor = model(batch) # prediction
             loss = criterion(outputs, labels)  # calculating loss by comparing to the y_set
@@ -208,8 +189,6 @@ def validate(model:nn.Module) -> tuple[float, float]:
         acc = good_pred / total  # average train loss and accuracy for one epoch
         val_loss = np.average(losses)
     print('| Validation Loss: {:.4f} | Validation Accuracy: {:.2f}%'.format(val_loss, 100 * acc))
-    if LOG:
-        writer.add_scalar("Accuracy", acc, epoch)
     return val_loss, acc
 def test(model:nn.Module) -> None:
     """Test best model"""
@@ -220,7 +199,7 @@ def test(model:nn.Module) -> None:
         for (i) in test_loader:
             inputs:Tensor = i[0]
             labels:Tensor = i[1]
-            inputs = inputs.to(device) # put the data in gpu
+            inputs = inputs.to(device) # put the data in the gpu
             labels = labels.to(device)
             outputs:Tensor = model(inputs)  # prediction
             _, predicted = torch.max(outputs.data, 1)
@@ -231,15 +210,20 @@ def test(model:nn.Module) -> None:
     return
 
 if __name__ == "__main__":
-    # model = torch.load('/home/j/data/outputs/models/lqnld.pkl', map_location=torch.device("cuda:1"))
-    # test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
-    # test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
-    # test_dataset = Data.TensorDataset(test_x_set, test_y_set)
-    # test_loader = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
-    # test(model)
     setup_seed(SEED)  # set random seed to ensure reproducibility
     # device = torch.device('cuda:'+args.GPU_NUM if torch.cuda.is_available() else 'cpu') # Device configuration
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')  # Device configuration
+    print(device)
+
+    model = torch.load('/home/j/data/outputs/models/march22_SEASONDOY_T.pkl', map_location=torch.device("cuda:1"))
+    MODEL_NAME = 'march22_SEASONDOY_F'
+    #model = torch.load('/home/j/data/outputs/models/march22_SEASONDOY_F.pkl', map_location=torch.device("cuda:1"))
+    test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
+    test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
+    test_dataset = Data.TensorDataset(test_x_set, test_y_set)
+    test_loader = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
+    test(model)
+
     timestamp()
     train_loader, val_loader = build_dataloader(x_set, y_set, BATCH_SIZE) # convert the loaded samples and labels into a dataloader object
     model = TransformerClassifier(num_bands, num_classes, d_model, nhead, num_layers, dim_feedforward, sequence_length).to(device)
@@ -256,20 +240,11 @@ if __name__ == "__main__":
     print("start training")
     timestamp()
     # initialize the early_stopping object
-    early_stopping = EarlyStopping(patience=patience, verbose=False)
+    early_stopping = EarlyStopping(patience=patience, delta= 0.5, verbose=False)
     logdir = '/home/jonathan/data/prof'
     prof = None
     loss_idx_value = 0 # for the writer, logging scalars, whatever that means WTF
     for epoch in range(EPOCH):
-        if LOG:
-            prof = torch.profiler.profile(
-                # schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler(logdir + "/profiler"),
-                record_shapes=True,
-                profile_memory=True,
-                with_stack=True)
-            prof.start()
-        # print(epoch)
         train_loss, train_acc = train(model, epoch, prof)
         val_loss, val_acc = validate(model)
         if val_acc > min(val_epoch_acc):
@@ -285,27 +260,22 @@ if __name__ == "__main__":
         if early_stopping.early_stop:
             print("Early stopping in epoch " + str(epoch))
             print("Best model in epoch :" + str(best_epoch))
-            print("Model ID: " + UID + "; validation loss: " + str(best_acc))
+            print("Model ID: " + str(UID) + "; validation loss: " + str(best_acc))
             break
-        if LOG:
-            writer.add_scalar("Loss/Epochs", val_loss, epoch)
-            prof.stop()
         if epoch == 25 and val_loss < 0.5: # stop in case model is BS early on to save GPU time
             print("something is wrong. check learning rate. Aborting")
             break
         if epoch % 20 == 0:
             print(epoch, '/n', val_acc)
-    if LOG:
-        writer.close() #why not writer.flush? what is the difference #WTF
-
-    torch.save(model, f'/home/j/data/outputs/models/MORE.pkl')
+    torch.save(model, f'/home/j/data/outputs/models/march22_SEASONDOY_F.pkl')
     # test model:
-    model = torch.load('/home/j/data/outputs/models/lqnld.pkl', map_location=torch.device("cuda:1"))
+    model = torch.load('/home/j/data/outputs/models/march22_SEASONDOY_T.pkl', map_location=torch.device("cuda:1"))
+    model = torch.load('/home/j/data/outputs/models/march22_SEASONDOY_F.pkl', map_location=torch.device("cuda:1"))
     test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
     test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
     test_dataset = Data.TensorDataset(test_x_set, test_y_set)
-    # test_loader = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
-    # test(model)
+    test_loader = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
+    test(model)
 
     # explain model
     model.zero_grad()
