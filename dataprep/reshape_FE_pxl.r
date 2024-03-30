@@ -145,7 +145,7 @@ process_file <- function(file_path) {
 
 
   # write to csv file
-  data.table::fwrite(df, file = paste0("/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl_balanced_buffered_reshaped_standardized/", basename(file_path)))
+  data.table::fwrite(df, file = paste0("/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl04_balanced_buffered_reshaped_standardized_species/", basename(file_path)))
 }
 
 ######
@@ -159,7 +159,7 @@ process_file <- function(file_path) {
 
 # read all csv 
 tic()
-csv = list.files(path = "/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl_balanced_buffered_unshaped/",full.names = T, pattern = "\\.csv$") 
+csv = list.files(path = "/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl03_balanced_buffered_unshaped_species/",full.names = T, pattern = "\\.csv$") 
 cat('csv loaded')
 toc()
 

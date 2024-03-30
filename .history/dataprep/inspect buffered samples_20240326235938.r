@@ -21,25 +21,6 @@ CREATEGPKG = TRUE
 a = sf::read_sf("/home/j/data/FE_train_3035_buffered_10m.gpkg")
 HDD = "/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904"
 
-# Define function to move files
-move_files <- function(file) {
-  file.copy(file.path(folder_path, file), file.path(destination_dir, file))
-  file.remove(file.path(folder_path, file))
-}
-# Define function to balance a dataset
-balance_dataset <- function(data, var, seed) {  # data: input dataframe, var: target variable to balance (string), filepath: output file path, seed: random seed (integer) # nolint
-  set.seed(seed)
-  class_counts <- table(data[[var]]) # Count the number of observations in each class
-  min_count <- min(class_counts) # Find the minimum number of observations among classes
-  balanced_df <- data.frame() # Initialize an empty dataframe to store the balanced samples
-  for (class_name in names(class_counts)) { # Loop through each class
-    class_df <- data[data[[var]] == class_name,]   # Subset the dataframe for the current class
-    sampled_indices <- sample(1:nrow(class_df), min_count, replace = FALSE)   # Sample the minimum number of observations for the current class
-    balanced_df <- rbind(balanced_df, class_df[sampled_indices, ]) # Append the sampled observations to the balanced dataframe
-  }
-  return(balanced_df) # Return the balanced dataframe
-}
-
 if (BUFFERANDMOVEFILES) { # use the already buffered gpkg file to move the corresponding csv files to a new folder
   cl <- makeCluster((detectCores()-2))  # Detect available cores
   ID_vector = a$ID
@@ -63,7 +44,6 @@ if (CREATEUNBALANCEDLABELS) { # convert the BST1_BA_1 to encoded values
   # create a vector with the encoded values based on the dictionary
   code <- c(210, 310, 410, 4, 630, 710, 7, 8, 9)  # i exclude 110 to trick the positional encoding because it cannot start at 0
   # create a vector with the corresponding ranges for the "oak" and other categories
-  pine_range <- c(410:490)
   oak_range <- c(600:620)
   sycamore_range <- c(820:829)
   other_evergreen_range <- c(1, 120:199, 220:299, 320:399, 420:499)
@@ -125,10 +105,8 @@ if (BALANCELABELSANDMOVEDATA) { # balances the dataset while writing correspondi
     stopCluster(cl) # Stop parallel backend
 
     if (CREATEGPKG) { # create gpkg from balanced dataset of the species
-          balanced_labels = data.table::fread(file.path(HDD, "data/pxl_buffered_labels_balanced_species.csv"))
-          a = sf::read_sf("/home/j/data/FE_train_3035_buffered_10m.gpkg")
-          b = dplyr::filter(a, ID %in% balanced_labels$ID)
-          b = dplyr::select(b, c("ID","Tile_ID","BST1_BA_1"))
+          b = dplyr::filter(a, ID %in% balanced_df$ID)
+          b = dplyr::select(b, c("ID","encoded"))
           sf::st_write(b, file.path(HDD, "data/pxl_buffered_balanced_species.gpkg"))
         }
       }
@@ -159,3 +137,4 @@ if (BALANCELABELSANDMOVEDATA) { # balances the dataset while writing correspondi
         }
       }
 }
+

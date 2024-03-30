@@ -34,7 +34,7 @@ PARSE = False
 GROMIT = True
 SEASONDOY = True # Use the seasonal DOY instead if the multi-year DOY
 TRAIN = True 
-TESTBI = False # test the model on the BI data
+TESTBI = True # test the model on the BI data
 PREJITTER = False # apply static noise to the training data to counter spatial correlation
 TSA = False # Time series augmentation 
 FOUNDATION = False # Train or apply a foundation model
@@ -42,7 +42,7 @@ FINETUNE = False # Finetune using the BI data
 EXPLAIN = False # Explain the model
 
 # device = torch.device('cuda:'+args.GPU_NUM if torch.cuda.is_available() else 'cpu') # Device configuration
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
+device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')  # Device configuration
 
 if PARSE:
     parser = argparse.ArgumentParser(description='trains the Transformer with given parameters')

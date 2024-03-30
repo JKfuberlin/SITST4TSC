@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from torch import nn, Tensor
 # import sits_classifier.utils.csv_utils as csv_utils
-import csv_utils as csv_utils
+import sits_classifier.utils.csv_utils as csv_utils
 import os
 import pandas as pd
 
@@ -32,10 +32,10 @@ if __name__ == "__main__":
     x_data, y_data = csv_utils.to_numpy_subset(DATA_DIR, labels, SPECIES)  # turn csv file into numpy dataset while balancing the data based on minority class in dataset
     x_data_season = x_data[:, :, 0:11] # 1 - 11 subsets all bands + DOY indicating the season
     x_data_years = np.concatenate((x_data[:, :, 0:10], x_data[:, :, 11:12]), axis=2) # 1 - 10 + 12 subsets all bands + DOY indicating the year
-    x_set_season, y_set = numpy_to_tensor(x_data_season, y_data)  # turn dataset into tensor format
-    x_set_years, y_set = numpy_to_tensor(x_data_years, y_data)  # dirty solution but avoids reprogramming the function
-    torch.save(x_set_season, '/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_season.pt')
-    torch.save(x_set_years, '/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_years.pt')
+    x_data_season, y_set = numpy_to_tensor(x_data_season, y_data)  # turn dataset into tensor format
+    x_data_years, y_set = numpy_to_tensor(x_data_years, y_data)  # dirty solution but avoids reprogramming the function
+    torch.save(x_data_season, '/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_season.pt')
+    torch.save(x_data_years, '/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_years.pt')
     torch.save(y_set, '/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/y_set_pxl_buffered_balanced_species.pt')
 
 # Annex 1 tensor.view() vs tensor.reshape()

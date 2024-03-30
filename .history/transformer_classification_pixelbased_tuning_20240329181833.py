@@ -32,14 +32,11 @@ sys.path.append('../') # navigating one level up to access all modules
 # flags
 PARSE = False
 GROMIT = True
-SEASONDOY = True # Use the seasonal DOY instead if the multi-year DOY
-TRAIN = True 
-TESTBI = False # test the model on the BI data
-PREJITTER = False # apply static noise to the training data to counter spatial correlation
-TSA = False # Time series augmentation 
-FOUNDATION = False # Train or apply a foundation model
-FINETUNE = False # Finetune using the BI data
-EXPLAIN = False # Explain the model
+SEASONDOY = False
+TRAIN = True
+#TRAIN = False
+TEST = True
+EXPLAIN = False
 
 # device = torch.device('cuda:'+args.GPU_NUM if torch.cuda.is_available() else 'cpu') # Device configuration
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
@@ -68,14 +65,13 @@ else:
     num_layers = 6
     dim_feedforward = 256
     BATCH_SIZE = 16
-    UID = 999
-
-MODEL_NAME = 'Transformer' + '_' + str(UID) +str(d_model)+'_' + str(nhead)+'_' + str(num_layers)+'_' + str(dim_feedforward)+'_' + str(BATCH_SIZE)+'_' + str(SEASONDOY)
-MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME    
 
 if GROMIT:
+    UID = 2
     PATH = '/home/j/data/'
     MODEL = 'Transformer'
+    MODEL_NAME = MODEL + '_' + str(UID)
+    MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME
     if SEASONDOY:
         x_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_season.pt')
     else:
@@ -96,6 +92,8 @@ else:
     LR = 0.00001  # learning rate, which in theory could be within the scope of parameter tuning
     PATH = '/home/jonathan/data/'
     MODEL = 'Transformer'
+    MODEL_NAME = MODEL + '_' + str(UID) +d_model+'_' + nhead+'_' + num_layers+'_' + dim_feedforward+'_' + BATCH_SIZE+'_' + SEASONDOY
+    MODEL_PATH = '/home/jonathan/data/outputs/models/' + MODEL_NAME    
 
 # general hyperparameters
 SEED = 420 # a random seed for reproduction, at some point i should try different random seeds to exclude (un)lucky draws
@@ -112,10 +110,7 @@ def build_dataloader(x_set:Tensor, y_set:Tensor, batch_size:int) -> tuple[Data.D
     # gives me an object containing tuples of tensors of x_set and the labels
     #  x_set: [204, 305, 11] number of files, sequence length, number of bands
     size = len(dataset)
-    train_size = round(0.75 * size)
-    val_size = round(0.15 * size)
-    test_size = size - train_size - val_size
-    #train_size, val_size, test_size = round(0.75 * size), round(0.15 * size), round(0.10 * size)
+    train_size, val_size, test_size = round(0.75 * size), round(0.15 * size), round(0.10 * size)
     generator = torch.Generator() # this is for random sampling
     train_dataset, val_dataset, test_dataset = Data.random_split(dataset, [train_size, val_size, test_size], generator) # split the data in train and validation
     train_loader = Data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False) # Create PyTorch data loaders from the datasets
@@ -203,9 +198,8 @@ def validate(model:nn.Module) -> tuple[float, float]:
         val_loss = np.average(losses)
     print('| Validation Loss: {:.4f} | Validation Accuracy: {:.2f}%'.format(val_loss, 100 * acc))
     return val_loss, acc
-def test(model:nn.Module, testloader, dataset_name:str) -> None:
+def test(model:nn.Module) -> None:
     """Test best model"""
-    test_loader = testloader
     model.eval()
     with torch.no_grad():
         y_true = []
@@ -220,7 +214,7 @@ def test(model:nn.Module, testloader, dataset_name:str) -> None:
             y_true += labels.tolist()
             y_pred += predicted.tolist()
         classes = ['Spruce', 'Sfir', 'Dougl', 'Pine', 'Oak', 'Redoak', 'Beech', 'Sycamore', 'OtherCon', 'OtherDec']
-        plot.draw_confusion_matrix(y_true, y_pred, classes, MODEL_NAME, UID, dataset_name)
+        plot.draw_confusion_matrix(y_true, y_pred, classes, MODEL_NAME, UID)
     return
 
 
@@ -229,6 +223,7 @@ if __name__ == "__main__":
         MODEL_NAME
         setup_seed(SEED)  # set random seed to ensure reproducibility
         print(device)
+
         timestamp()
         train_loader, val_loader, test_loader = build_dataloader(x_set, y_set, BATCH_SIZE) # convert the loaded samples and labels into a dataloader object
         model = TransformerClassifier(num_bands, num_classes, d_model, nhead, num_layers, dim_feedforward, sequence_length).to(device)
@@ -245,8 +240,8 @@ if __name__ == "__main__":
         print("start training")
         timestamp()
         # initialize the early_stopping object
-        early_stopping = EarlyStopping(patience=patience, delta= 0.1, verbose=False)
-        logdir = '/home/j/data/prof'
+        early_stopping = EarlyStopping(patience=patience, delta= 0.5, verbose=False)
+        logdir = '/home/jonathan/data/prof'
         prof = None
         for epoch in range(EPOCH):
             train_loss, train_acc = train(model, epoch, prof)
@@ -273,18 +268,20 @@ if __name__ == "__main__":
                 break
             if epoch % 20 == 0:
                 print(epoch, '/n', val_acc)
-        torch.save(model, f'/home/j/data/outputs/models/{MODEL_NAME}.pkl')
-        test(model, test_loader, "FE")
+        torch.save(model, f'/home/j/data/outputs/models/'+MODELNAME+'.pkl')
+        test(model)
 
-    if TESTBI:
+    if TEST:
         # test model:
+        model = torch.load('/home/j/data/outputs/models/+MODELNAME+.pkl', map_location=(device))
+        # model = torch.load('/home/j/data/outputs/models/march22_SEASONDOY_F.pkl', map_location=torch.device("cuda:1"))
         test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
         test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
         #find unique values of test_y_set
         test_y_set.unique()
         test_dataset = Data.TensorDataset(test_x_set, test_y_set)
-        test_loader_BI = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
-        test(model, test_loader_BI, "BI")
+        test_loader = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
+        test(model)
 
     if EXPLAIN:
         # explain model

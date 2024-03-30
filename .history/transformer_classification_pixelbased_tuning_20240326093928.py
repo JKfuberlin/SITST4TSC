@@ -30,19 +30,9 @@ from captum.attr import ( # explainable AI
 sys.path.append('../') # navigating one level up to access all modules
 
 # flags
-PARSE = False
 GROMIT = True
-SEASONDOY = True # Use the seasonal DOY instead if the multi-year DOY
-TRAIN = True 
-TESTBI = False # test the model on the BI data
-PREJITTER = False # apply static noise to the training data to counter spatial correlation
-TSA = False # Time series augmentation 
-FOUNDATION = False # Train or apply a foundation model
-FINETUNE = False # Finetune using the BI data
-EXPLAIN = False # Explain the model
-
-# device = torch.device('cuda:'+args.GPU_NUM if torch.cuda.is_available() else 'cpu') # Device configuration
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
+PARSE = False
+SEASONDOY = False
 
 if PARSE:
     parser = argparse.ArgumentParser(description='trains the Transformer with given parameters')
@@ -68,19 +58,18 @@ else:
     num_layers = 6
     dim_feedforward = 256
     BATCH_SIZE = 16
-    UID = 999
-
-MODEL_NAME = 'Transformer' + '_' + str(UID) +str(d_model)+'_' + str(nhead)+'_' + str(num_layers)+'_' + str(dim_feedforward)+'_' + str(BATCH_SIZE)+'_' + str(SEASONDOY)
-MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME    
 
 if GROMIT:
+    UID = 2
     PATH = '/home/j/data/'
     MODEL = 'Transformer'
+    MODEL_NAME = MODEL + '_' + str(UID)
+    MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME
     if SEASONDOY:
         x_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_season.pt')
     else:
         x_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_years.pt')
-    y_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/y_set_pxl_buffered_balanced_species.pt')
+    y_set = torch.load('/home/j/data/y_set_pxl_buffered_balanced_species.pt')
     d_model = 512 
     nhead = 8 # avoid AssertionError: embed_dim must be divisible by num_heads
     num_layers = 3
@@ -92,10 +81,12 @@ else:
     UID = 999
     x_set = torch.load('/home/j/data/x_set.pt')
     y_set = torch.load('/home/j/data/y_set.pt')
-    EPOCH = 420  # the maximum amount of epochs i want to train
-    LR = 0.00001  # learning rate, which in theory could be within the scope of parameter tuning
     PATH = '/home/jonathan/data/'
     MODEL = 'Transformer'
+    MODEL_NAME = MODEL + '_' + str(UID)
+    MODEL_PATH = '/home/jonathan/data/outputs/models/' + MODEL_NAME
+    EPOCH = 420  # the maximum amount of epochs i want to train
+    LR = 0.00001  # learning rate, which in theory could be within the scope of parameter tuning
 
 # general hyperparameters
 SEED = 420 # a random seed for reproduction, at some point i should try different random seeds to exclude (un)lucky draws
@@ -105,29 +96,25 @@ num_classes = 10 # the number of different classes that are supposed to be disti
 sequence_length = x_set.size(1) # this retrieves the sequence length from the x_set tensor
 
 
-def build_dataloader(x_set:Tensor, y_set:Tensor, batch_size:int) -> tuple[Data.DataLoader, Data.DataLoader, Data.DataLoader, Tensor]:
+def build_dataloader(x_set:Tensor, y_set:Tensor, batch_size:int) -> tuple[Data.DataLoader, Data.DataLoader, Tensor]:
     """Build and split dataset, and generate dataloader for training and validation"""
     # automatically split dataset
     dataset = Data.TensorDataset(x_set, y_set) #  'wrapping' tensors: Each sample will be retrieved by indexing tensors along the first dimension.
     # gives me an object containing tuples of tensors of x_set and the labels
     #  x_set: [204, 305, 11] number of files, sequence length, number of bands
     size = len(dataset)
-    train_size = round(0.75 * size)
-    val_size = round(0.15 * size)
-    test_size = size - train_size - val_size
-    #train_size, val_size, test_size = round(0.75 * size), round(0.15 * size), round(0.10 * size)
+    train_size, val_size = round(0.8 * size), round(0.2 * size)
     generator = torch.Generator() # this is for random sampling
-    train_dataset, val_dataset, test_dataset = Data.random_split(dataset, [train_size, val_size, test_size], generator) # split the data in train and validation
+    train_dataset, val_dataset = Data.random_split(dataset, [train_size, val_size], generator) # split the data in train and validation
     train_loader = Data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False) # Create PyTorch data loaders from the datasets
     val_loader = Data.DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False)
-    test_loader = Data.DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False)
     # num_workers is for parallelizing this function, however i need to set it to 1 on the HPC
     # shuffle is True so data will be shuffled in every epoch, this probably is activated to decrease overfitting
     # drop_last = False makes sure, the entirety of the dataset is used even if the remainder of the last samples is fewer than batch_size
     '''
     The DataLoader object now contains n batches of [batch_size, seq_len, num_bands] and can be used for iteration in train()
     '''
-    return train_loader, val_loader, test_loader
+    return train_loader, val_loader
 def save_hyperparameters() -> None:
     """Save hyperparameters into a json file"""
     params = {
@@ -203,9 +190,8 @@ def validate(model:nn.Module) -> tuple[float, float]:
         val_loss = np.average(losses)
     print('| Validation Loss: {:.4f} | Validation Accuracy: {:.2f}%'.format(val_loss, 100 * acc))
     return val_loss, acc
-def test(model:nn.Module, testloader, dataset_name:str) -> None:
+def test(model:nn.Module) -> None:
     """Test best model"""
-    test_loader = testloader
     model.eval()
     with torch.no_grad():
         y_true = []
@@ -220,133 +206,137 @@ def test(model:nn.Module, testloader, dataset_name:str) -> None:
             y_true += labels.tolist()
             y_pred += predicted.tolist()
         classes = ['Spruce', 'Sfir', 'Dougl', 'Pine', 'Oak', 'Redoak', 'Beech', 'Sycamore', 'OtherCon', 'OtherDec']
-        plot.draw_confusion_matrix(y_true, y_pred, classes, MODEL_NAME, UID, dataset_name)
+        plot.draw_confusion_matrix(y_true, y_pred, classes, MODEL_NAME, UID)
     return
 
-
 if __name__ == "__main__":
-    if TRAIN:
-        MODEL_NAME
-        setup_seed(SEED)  # set random seed to ensure reproducibility
-        print(device)
-        timestamp()
-        train_loader, val_loader, test_loader = build_dataloader(x_set, y_set, BATCH_SIZE) # convert the loaded samples and labels into a dataloader object
-        model = TransformerClassifier(num_bands, num_classes, d_model, nhead, num_layers, dim_feedforward, sequence_length).to(device)
-        save_hyperparameters()
-        criterion = nn.CrossEntropyLoss().to(device) # define the calculation of loss during training and validation
-        optimizer = optim.Adam(model.parameters(), LR) # define how to optimize the model during backpropagation
-        softmax = nn.Softmax(dim=1).to(device)
-        # evaluate terms
-        train_epoch_loss = []
-        val_epoch_loss = []
-        train_epoch_acc = [0]
-        val_epoch_acc = [0]
-        # start training and validation of the model
-        print("start training")
-        timestamp()
-        # initialize the early_stopping object
-        early_stopping = EarlyStopping(patience=patience, delta= 0.1, verbose=False)
-        logdir = '/home/j/data/prof'
-        prof = None
-        for epoch in range(EPOCH):
-            train_loss, train_acc = train(model, epoch, prof)
-            val_loss, val_acc = validate(model)
-            if val_acc > min(val_epoch_acc):
-                torch.save(model.state_dict(), MODEL_PATH)
-                best_acc = val_acc
-                best_epoch = epoch
-            # record loss and accuracy
-            train_epoch_loss.append(train_loss)
-            train_epoch_acc.append(train_acc)
-            val_epoch_loss.append(val_loss)
-            val_epoch_acc.append(val_acc)
-            plot.draw_curve(train_epoch_loss, val_epoch_loss, 'loss',method='LSTM', model=MODEL_NAME, uid=UID)
-            plot.draw_curve(train_epoch_acc, val_epoch_acc, 'accuracy',method='LSTM', model=MODEL_NAME, uid=UID)
-            early_stopping(val_loss, model)
-            if early_stopping.early_stop:
-                print("Early stopping in epoch " + str(epoch))
-                print("Best model in epoch :" + str(best_epoch))
-                print("Model ID: " + str(UID) + "; validation loss: " + str(best_acc))
-                break
-            if epoch == 25 and val_loss < 0.5: # stop in case model is BS early on to save GPU time
-                print("something is wrong. check learning rate. Aborting")
-                break
-            if epoch % 20 == 0:
-                print(epoch, '/n', val_acc)
-        torch.save(model, f'/home/j/data/outputs/models/{MODEL_NAME}.pkl')
-        test(model, test_loader, "FE")
+    setup_seed(SEED)  # set random seed to ensure reproducibility
+    # device = torch.device('cuda:'+args.GPU_NUM if torch.cuda.is_available() else 'cpu') # Device configuration
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')  # Device configuration
+    print(device)
 
-    if TESTBI:
-        # test model:
-        test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
-        test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
-        #find unique values of test_y_set
-        test_y_set.unique()
-        test_dataset = Data.TensorDataset(test_x_set, test_y_set)
-        test_loader_BI = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
-        test(model, test_loader_BI, "BI")
+    model = torch.load('/home/j/data/outputs/models/march22_SEASONDOY_T.pkl', map_location=torch.device("cuda:1"))
+    MODEL_NAME = 'march22_SEASONDOY_F'
+    #model = torch.load('/home/j/data/outputs/models/march22_SEASONDOY_F.pkl', map_location=torch.device("cuda:1"))
+    test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
+    test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
+    test_dataset = Data.TensorDataset(test_x_set, test_y_set)
+    test_loader = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
+    test(model)
 
-    if EXPLAIN:
-        # explain model
-        model.zero_grad()
-        for iter in range(len(test_dataset)):
-            data = test_dataset[iter]
-            feature_mask = np.ones(shape=[422, 10])
-            for npiter in range(feature_mask.shape[1]):
-                feature_mask[:, npiter] = feature_mask[:, npiter] * npiter
-                ### convert to pytorch tensor
-            feature_mask = torch.tensor(feature_mask).long()
+    timestamp()
+    train_loader, val_loader = build_dataloader(x_set, y_set, BATCH_SIZE) # convert the loaded samples and labels into a dataloader object
+    model = TransformerClassifier(num_bands, num_classes, d_model, nhead, num_layers, dim_feedforward, sequence_length).to(device)
+    save_hyperparameters()
+    criterion = nn.CrossEntropyLoss().to(device) # define the calculation of loss during training and validation
+    optimizer = optim.Adam(model.parameters(), LR) # define how to optimize the model during backpropagation
+    softmax = nn.Softmax(dim=1).to(device)
+    # evaluate terms
+    train_epoch_loss = []
+    val_epoch_loss = []
+    train_epoch_acc = [0]
+    val_epoch_acc = [0]
+    # start training and validation of the model
+    print("start training")
+    timestamp()
+    # initialize the early_stopping object
+    early_stopping = EarlyStopping(patience=patience, delta= 0.5, verbose=False)
+    logdir = '/home/jonathan/data/prof'
+    prof = None
+    loss_idx_value = 0 # for the writer, logging scalars, whatever that means WTF
+    for epoch in range(EPOCH):
+        train_loss, train_acc = train(model, epoch, prof)
+        val_loss, val_acc = validate(model)
+        if val_acc > min(val_epoch_acc):
+            torch.save(model.state_dict(), MODEL_PATH)
+            best_acc = val_acc
+            best_epoch = epoch
+        # record loss and accuracy
+        train_epoch_loss.append(train_loss)
+        train_epoch_acc.append(train_acc)
+        val_epoch_loss.append(val_loss)
+        val_epoch_acc.append(val_acc)
+        early_stopping(val_loss, model)
+        if early_stopping.early_stop:
+            print("Early stopping in epoch " + str(epoch))
+            print("Best model in epoch :" + str(best_epoch))
+            print("Model ID: " + str(UID) + "; validation loss: " + str(best_acc))
+            break
+        if epoch == 25 and val_loss < 0.5: # stop in case model is BS early on to save GPU time
+            print("something is wrong. check learning rate. Aborting")
+            break
+        if epoch % 20 == 0:
+            print(epoch, '/n', val_acc)
+    torch.save(model, f'/home/j/data/outputs/models/march22_SEASONDOY_F.pkl')
+    # test model:
+    model = torch.load('/home/j/data/outputs/models/march22_SEASONDOY_T.pkl', map_location=torch.device("cuda:1"))
+    model = torch.load('/home/j/data/outputs/models/march22_SEASONDOY_F.pkl', map_location=torch.device("cuda:1"))
+    test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
+    test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
+    test_dataset = Data.TensorDataset(test_x_set, test_y_set)
+    test_loader = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
+    test(model)
 
-            ### initialize Feature Ablation algorithm
-            ablator = FeatureAblation(model)
-            attribution = ablator.attribute(
-                inputs=data["bert_input"].float().unsqueeze(axis=0).to(device),
-                baselines=None,
-                target=None,
-                additional_forward_args=(
-                    data["bert_mask"].long().unsqueeze(axis=0).to(device),
-                    data["time"].long().unsqueeze(axis=0).to(device)),
-                feature_mask=feature_mask.unsqueeze(axis=0).to(device),
-                perturbations_per_eval=NUM_WORKERS,
-                show_progress=False
-            )
+    # explain model
+    model.zero_grad()
+    for iter in range(len(test_dataset)):
+        data = test_dataset[iter]
+        feature_mask = np.ones(shape=[422, 10])
+        for npiter in range(feature_mask.shape[1]):
+            feature_mask[:, npiter] = feature_mask[:, npiter] * npiter
+            ### convert to pytorch tensor
+        feature_mask = torch.tensor(feature_mask).long()
 
-            attribution = attribution.squeeze()
-            attribution = pd.DataFrame(attribution.detach().cpu().numpy())
+        ### initialize Feature Ablation algorithm
+        ablator = FeatureAblation(model)
+        attribution = ablator.attribute(
+            inputs=data["bert_input"].float().unsqueeze(axis=0).to(device),
+            baselines=None,
+            target=None,
+            additional_forward_args=(
+                data["bert_mask"].long().unsqueeze(axis=0).to(device),
+                data["time"].long().unsqueeze(axis=0).to(device)),
+            feature_mask=feature_mask.unsqueeze(axis=0).to(device),
+            perturbations_per_eval=NUM_WORKERS,
+            show_progress=False
+        )
 
-            ### column names:
-            df_cols = [os.path.join(band) for band in bands]
-            attribution.columns = df_cols
+        attribution = attribution.squeeze()
+        attribution = pd.DataFrame(attribution.detach().cpu().numpy())
 
-            ### only first row is relevant, all other rows are duplicates
-            attribution = attribution.head(1)
-            # attribution.shape
+        ### column names:
+        df_cols = [os.path.join(band) for band in bands]
+        attribution.columns = df_cols
 
-            if not os.path.exists(os.path.join(INPUT_DATA_PATH, 'model', 'attr_' + MODEL_NAME, 'feature_ablation')):
-                os.mkdir(os.path.join(INPUT_DATA_PATH, 'model', 'attr_' + MODEL_NAME, 'feature_ablation'))
+        ### only first row is relevant, all other rows are duplicates
+        attribution = attribution.head(1)
+        # attribution.shape
 
-            ### save dataframe to disk
-            attribution.to_csv(os.path.join(MODEL_SAVE_PATH, 'attr_' + MODEL_NAME, 'feature_ablation',
-                                            str(testdat["plotID"].iloc[iter]) + '_attr_label_' +
-                                            str(testdat["test_label"].iloc[iter]) + '_pred_' +
-                                            str(testdat["prediction"].iloc[iter]) +
-                                            str(np.where(
-                                                (testdat["mort_1"].iloc[iter] > 0) & (testdat["prediction"].iloc[iter] == 1)
-                                                or (testdat["mort_1"].iloc[iter] == 0) & (
-                                                            testdat["prediction"].iloc[iter] == 0),
-                                                '_correct', '_false')) +
-                                            '_extent_' + str(int(testdat["mort_1"].iloc[iter] * 100)) +
-                                            '_featabl.csv'),
-                            sep=';', index=False)
+        if not os.path.exists(os.path.join(INPUT_DATA_PATH, 'model', 'attr_' + MODEL_NAME, 'feature_ablation')):
+            os.mkdir(os.path.join(INPUT_DATA_PATH, 'model', 'attr_' + MODEL_NAME, 'feature_ablation'))
 
-    # # visualize loss and accuracy during training and validation
-    # model.load_state_dict(torch.load(MODEL_PATH))
-    # plot.draw_curve(train_epoch_loss, val_epoch_loss, 'loss',method='LSTM', model=MODEL_NAME, uid=UID)
-    # plot.draw_curve(train_epoch_acc, val_epoch_acc, 'accuracy',method='LSTM', model=MODEL_NAME, uid=UID)
-    # timestamp()
-    # # test(model)
-    # print('plot results successfully')
-    # torch.save(model, f'/home/j/home/jonathan/data/outputs/models/{MODEL_NAME}.pkl')
-    # f = open(logfile, 'a')
-    # f.write("Model ID: " + str(UID) + "; validation accuracy: " + str(best_acc) + '\n')
-    # f.close()
+        ### save dataframe to disk
+        attribution.to_csv(os.path.join(MODEL_SAVE_PATH, 'attr_' + MODEL_NAME, 'feature_ablation',
+                                        str(testdat["plotID"].iloc[iter]) + '_attr_label_' +
+                                        str(testdat["test_label"].iloc[iter]) + '_pred_' +
+                                        str(testdat["prediction"].iloc[iter]) +
+                                        str(np.where(
+                                            (testdat["mort_1"].iloc[iter] > 0) & (testdat["prediction"].iloc[iter] == 1)
+                                            or (testdat["mort_1"].iloc[iter] == 0) & (
+                                                        testdat["prediction"].iloc[iter] == 0),
+                                            '_correct', '_false')) +
+                                        '_extent_' + str(int(testdat["mort_1"].iloc[iter] * 100)) +
+                                        '_featabl.csv'),
+                           sep=';', index=False)
+
+    # visualize loss and accuracy during training and validation
+    model.load_state_dict(torch.load(MODEL_PATH))
+    plot.draw_curve(train_epoch_loss, val_epoch_loss, 'loss',method='LSTM', model=MODEL_NAME, uid=UID)
+    plot.draw_curve(train_epoch_acc, val_epoch_acc, 'accuracy',method='LSTM', model=MODEL_NAME, uid=UID)
+    timestamp()
+    # test(model)
+    print('plot results successfully')
+    torch.save(model, f'/home/j/home/jonathan/data/outputs/models/{MODEL_NAME}.pkl')
+    f = open(logfile, 'a')
+    f.write("Model ID: " + str(UID) + "; validation accuracy: " + str(best_acc) + '\n')
+    f.close()

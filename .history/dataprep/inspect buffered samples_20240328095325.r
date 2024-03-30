@@ -63,7 +63,6 @@ if (CREATEUNBALANCEDLABELS) { # convert the BST1_BA_1 to encoded values
   # create a vector with the encoded values based on the dictionary
   code <- c(210, 310, 410, 4, 630, 710, 7, 8, 9)  # i exclude 110 to trick the positional encoding because it cannot start at 0
   # create a vector with the corresponding ranges for the "oak" and other categories
-  pine_range <- c(410:490)
   oak_range <- c(600:620)
   sycamore_range <- c(820:829)
   other_evergreen_range <- c(1, 120:199, 220:299, 320:399, 420:499)

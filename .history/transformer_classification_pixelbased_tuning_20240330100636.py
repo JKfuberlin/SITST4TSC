@@ -32,9 +32,9 @@ sys.path.append('../') # navigating one level up to access all modules
 # flags
 PARSE = False
 GROMIT = True
-SEASONDOY = True # Use the seasonal DOY instead if the multi-year DOY
+SEASONDOY = False # Use the seasonal DOY instead if the multi-year DOY
 TRAIN = True 
-TESTBI = False # test the model on the BI data
+TESTBI = True # test the model on the BI data
 PREJITTER = False # apply static noise to the training data to counter spatial correlation
 TSA = False # Time series augmentation 
 FOUNDATION = False # Train or apply a foundation model
@@ -70,8 +70,8 @@ else:
     BATCH_SIZE = 16
     UID = 999
 
-MODEL_NAME = 'Transformer' + '_' + str(UID) +str(d_model)+'_' + str(nhead)+'_' + str(num_layers)+'_' + str(dim_feedforward)+'_' + str(BATCH_SIZE)+'_' + str(SEASONDOY)
-MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME    
+MODEL_NAME = 'Transformer' + '_' + str(UID) +d_model+'_' + nhead+'_' + num_layers+'_' + dim_feedforward+'_' + BATCH_SIZE+'_' + SEASONDOY
+MODEL_PATH = '/home/jonathan/data/outputs/models/' + MODEL_NAME    
 
 if GROMIT:
     PATH = '/home/j/data/'
@@ -246,7 +246,7 @@ if __name__ == "__main__":
         timestamp()
         # initialize the early_stopping object
         early_stopping = EarlyStopping(patience=patience, delta= 0.1, verbose=False)
-        logdir = '/home/j/data/prof'
+        logdir = '/home/jonathan/data/prof'
         prof = None
         for epoch in range(EPOCH):
             train_loss, train_acc = train(model, epoch, prof)
