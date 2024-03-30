@@ -1,2 +1,9 @@
 /venv
+__pycache__/
+mask/
+
+lqnld.pkl
+masks
+test.tif
+tiles.txt
 checkpoint.pt
