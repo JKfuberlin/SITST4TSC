@@ -152,6 +152,14 @@ parser.add_argument(
 parser.add_argument(
     "--gpu", dest="gpu", required=False, type=str, default="cuda:0", help="Select a GPU. Default is 'cuda:0'."
 )
+parser.add_argument(
+    "--sequence",
+    dest = "sequence",
+    required=False,
+    type=int,
+    default=None,
+    help="Transformer sequence length. Only needed when using transformer model for inference."
+)
 
 cli_args: Dict[str, Union[Path, int, bool, str]] = vars(parser.parse_args())
 
@@ -175,7 +183,7 @@ if "lstm" in inference_model.__module__.lower():
     inference_type: ModelType = ModelType.LSTM
 elif "transformer" in inference_model.__module__.lower():
     inference_type: ModelType = ModelType.TRANSFORMER
-    ttl: int = inference_model.sequence_length
+    ttl: int = cli_args.get("sequence")
 else:
     raise RuntimeError("Unknown model type supplied")
 
