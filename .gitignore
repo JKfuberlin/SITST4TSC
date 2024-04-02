@@ -2,6 +2,7 @@
 __pycache__/
 mask/
 
+.history/
 lqnld.pkl
 masks
 test.tif

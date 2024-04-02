@@ -38,7 +38,7 @@ def draw_curve(y_train:list[float], y_val:list[float], name:str, method:str, mod
     print("Saved plot at:", os.path.abspath(save_path))
 
 
-def draw_confusion_matrix(y_true:List[int], y_pred:List[int], classes:List[str], model:str, uid:str, dataset_name:str) -> None:
+def draw_confusion_matrix(y_true:List[int], y_pred:List[int], classes:List[str], model:str, uid:str, dataset_name:str, MODEL_NAME:str) -> None:
     """Draw consufion matrix to visualise classification result"""
     assert len(y_pred) == len(y_true), "y_true and y_pred must have the same length"
     # calculate confusion matrix
@@ -53,7 +53,7 @@ def draw_confusion_matrix(y_true:List[int], y_pred:List[int], classes:List[str],
                     color="white" if matrix[i, j] >= thresh else "black")
     # set title and label
     indices = range(len(matrix))
-    title = f'{uid}_confusion_matrix_{dataset_name}'
+    title = f'{uid}_confusion_matrix_{dataset_name}_{MODEL_NAME}'
     plt.xticks(indices, classes, rotation=45)
     plt.yticks(indices, classes)
     plt.ylabel('True label')

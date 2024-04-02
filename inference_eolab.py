@@ -132,7 +132,7 @@ if LOAD == False:
             pixel[pixel == -9999] = 0 # Now 'pixel' contains 0s instead of NaN values, effectively achieving positional padding
             pixel_torch64 = torch.tensor(pixel, dtype=torch.float64) # Convert to torch tensor
             pixel_torch64 = pixel_torch64.float() # Convert to a single data type, back to float
-            normalized_inference_datacube[row:row + 329, col:col + 11, :] = pixel_torch64
+            normalized_inference_datacube[row:row + 329, col:col + 11, :] = pixel_torch64 
     np.save(file='/home/j/data/datacube_north1.npy', arr=normalized_inference_datacube)
 else:
     # normalized_inference_datacube = np.load('/home/j/data/normalized_inference_datacube.npy')

@@ -32,17 +32,19 @@ sys.path.append('../') # navigating one level up to access all modules
 # flags
 PARSE = False
 GROMIT = True
-SEASONDOY = True # Use the seasonal DOY instead if the multi-year DOY
+SEASONDOY = False # Use the seasonal DOY instead if the multi-year DOY
 TRAIN = True 
-TESTBI = False # test the model on the BI data
+TESTBI = True # test the model on the BI data
 PREJITTER = False # apply static noise to the training data to counter spatial correlation
-TSA = False # Time series augmentation 
+TSAJ = False # Time series augmentation with jitter 
+TSARC = False # Time series augmentation with random time series sampling
 FOUNDATION = False # Train or apply a foundation model
 FINETUNE = False # Finetune using the BI data
 EXPLAIN = False # Explain the model
 
+
 # device = torch.device('cuda:'+args.GPU_NUM if torch.cuda.is_available() else 'cpu') # Device configuration
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
+device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')  # Device configuration
 
 if PARSE:
     parser = argparse.ArgumentParser(description='trains the Transformer with given parameters')
@@ -70,17 +72,17 @@ else:
     BATCH_SIZE = 16
     UID = 999
 
-MODEL_NAME = 'Transformer' + '_' + str(UID) +str(d_model)+'_' + str(nhead)+'_' + str(num_layers)+'_' + str(dim_feedforward)+'_' + str(BATCH_SIZE)+'_' + str(SEASONDOY)
+MODEL_NAME = 'Transformer' + '_' + str(UID)+'_' + str(d_model)+'_' + str(nhead)+'_' + str(num_layers)+'_' + str(dim_feedforward)+'_' + str(BATCH_SIZE)+'_' + str(SEASONDOY)
 MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME    
 
 if GROMIT:
     PATH = '/home/j/data/'
     MODEL = 'Transformer'
     if SEASONDOY:
-        x_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_season.pt')
+        x_set = np.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_season.npy')
     else:
-        x_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_years.pt')
-    y_set = torch.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/y_set_pxl_buffered_balanced_species.pt')
+        x_set = np.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_years.npy')
+    y_set = np.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/y_set_pxl_buffered_balanced_species.npy')
     d_model = 512 
     nhead = 8 # avoid AssertionError: embed_dim must be divisible by num_heads
     num_layers = 3
@@ -102,32 +104,12 @@ SEED = 420 # a random seed for reproduction, at some point i should try differen
 patience = 5 # early stopping patience; how long to wait after last time validation loss improved.
 num_bands = 10 # number of different bands from Sentinel 2
 num_classes = 10 # the number of different classes that are supposed to be distinguished
-sequence_length = x_set.size(1) # this retrieves the sequence length from the x_set tensor
+sequence_length = x_set.shape[1] # this retrieves the sequence length from the x_set numpy array
+esdelta = 0.1 # early stopping delta
+WINTERSTART = 300 # the start of the winter season as DOY
+WINTEREND = 70 # the end of the winter season as DOY
+    
 
-
-def build_dataloader(x_set:Tensor, y_set:Tensor, batch_size:int) -> tuple[Data.DataLoader, Data.DataLoader, Data.DataLoader, Tensor]:
-    """Build and split dataset, and generate dataloader for training and validation"""
-    # automatically split dataset
-    dataset = Data.TensorDataset(x_set, y_set) #  'wrapping' tensors: Each sample will be retrieved by indexing tensors along the first dimension.
-    # gives me an object containing tuples of tensors of x_set and the labels
-    #  x_set: [204, 305, 11] number of files, sequence length, number of bands
-    size = len(dataset)
-    train_size = round(0.75 * size)
-    val_size = round(0.15 * size)
-    test_size = size - train_size - val_size
-    #train_size, val_size, test_size = round(0.75 * size), round(0.15 * size), round(0.10 * size)
-    generator = torch.Generator() # this is for random sampling
-    train_dataset, val_dataset, test_dataset = Data.random_split(dataset, [train_size, val_size, test_size], generator) # split the data in train and validation
-    train_loader = Data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False) # Create PyTorch data loaders from the datasets
-    val_loader = Data.DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False)
-    test_loader = Data.DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=False)
-    # num_workers is for parallelizing this function, however i need to set it to 1 on the HPC
-    # shuffle is True so data will be shuffled in every epoch, this probably is activated to decrease overfitting
-    # drop_last = False makes sure, the entirety of the dataset is used even if the remainder of the last samples is fewer than batch_size
-    '''
-    The DataLoader object now contains n batches of [batch_size, seq_len, num_bands] and can be used for iteration in train()
-    '''
-    return train_loader, val_loader, test_loader
 def save_hyperparameters() -> None:
     """Save hyperparameters into a json file"""
     params = {
@@ -162,14 +144,38 @@ def setup_seed(seed:int) -> None:
     np.random.seed(seed)
     torch.backends.cudnn.deterministic = True # https://darinabal.medium.com/deep-learning-reproducible-results-using-pytorch-42034da5ad7
     torch.backends.cudnn.benchmark = False # not sure if these lines are needed and non-deterministic algorithms would be used otherwise
-def train(model:nn.Module, epoch:int, prof = None) -> tuple[float, float]:
+def split_data(x_set:np.ndarray, y_set:np.ndarray, seed:int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Split the data into train, validation and test set"""
+    size = len(x_set)
+    train_size = round(0.75 * size)
+    val_size = round(0.15 * size)
+    test_size = size - train_size - val_size
+    generator = np.random.default_rng(seed)
+    indices = np.arange(size)
+    generator.shuffle(indices)
+    train_indices = indices[:train_size]
+    val_indices = indices[train_size:train_size+val_size]
+    test_indices = indices[train_size+val_size:]
+    if PREJITTER: # apply static noise to the training data to counter spatial correlation
+        x_set = csvutils.jitter_pandas(x_set, jitter=5)
+    train_dataset = (x_set[train_indices], y_set[train_indices])
+    val_dataset = (x_set[val_indices], y_set[val_indices])
+    test_dataset = (x_set[test_indices], y_set[test_indices])
+    return train_dataset, val_dataset, test_dataset
+
+def train2(model:nn.Module, train_dataset:np.ndarray, batch_size:int, epoch:int) -> tuple[float, float]:
     model.train()  # sets model into training mode
     good_pred = 0 # initialize variables for accuracy and loss metrics
     total = 0
     losses = []
-    for (batch, labels) in (train_loader): # unclear whether i need to use enumerate(train_loader) or not
+    train_loader = Data.DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, drop_last=False)
+    for (batch, labels) in train_loader: # unclear whether i need to use enumerate(train_loader) or not
         labels = labels.to(device) # tensor [batch_size,] e.g. 32 labels in a tensor
         inputs = batch.to(device) # pass the data into the gpu [32, 305, 11] batch_size, sequence max length, num_bands
+        if TSAJ:
+            inputs = csvutils.jitter_tensor(inputs, jitter=5) # apply jitter to the input tensor spectral values and DOY
+        if TSARC:
+            inputs = csvutils.random_sample_tensor(inputs) # apply random time series sampling to the input tensor
         outputs = model(inputs)  # applying the model
         # at this point inputs is 305,3,11. 305 [timesteps, batch_size, num_bands]
         loss = criterion(outputs, labels)  # calculating loss by comparing to the y_set
@@ -203,7 +209,7 @@ def validate(model:nn.Module) -> tuple[float, float]:
         val_loss = np.average(losses)
     print('| Validation Loss: {:.4f} | Validation Accuracy: {:.2f}%'.format(val_loss, 100 * acc))
     return val_loss, acc
-def test(model:nn.Module, testloader, dataset_name:str) -> None:
+def test(model:nn.Module, testloader, dataset_name:str, MODEL_NAME) -> None:
     """Test best model"""
     test_loader = testloader
     model.eval()
@@ -220,17 +226,19 @@ def test(model:nn.Module, testloader, dataset_name:str) -> None:
             y_true += labels.tolist()
             y_pred += predicted.tolist()
         classes = ['Spruce', 'Sfir', 'Dougl', 'Pine', 'Oak', 'Redoak', 'Beech', 'Sycamore', 'OtherCon', 'OtherDec']
-        plot.draw_confusion_matrix(y_true, y_pred, classes, MODEL_NAME, UID, dataset_name)
+        plot.draw_confusion_matrix(y_true, y_pred, classes, MODEL_NAME, UID, dataset_name, MODEL_NAME)
     return
 
 
 if __name__ == "__main__":
+
+    train_set, val_set, test_set = split_data(x_set, y_set, SEED) # split the data into train, validation and test set, each is a tensor of two tensors (x and y)
+    train_set = csvutils.numpy_to_tensor(train_set[0], train_set[1]) # convert numpy arrays to tensors
+
     if TRAIN:
-        MODEL_NAME
         setup_seed(SEED)  # set random seed to ensure reproducibility
         print(device)
         timestamp()
-        train_loader, val_loader, test_loader = build_dataloader(x_set, y_set, BATCH_SIZE) # convert the loaded samples and labels into a dataloader object
         model = TransformerClassifier(num_bands, num_classes, d_model, nhead, num_layers, dim_feedforward, sequence_length).to(device)
         save_hyperparameters()
         criterion = nn.CrossEntropyLoss().to(device) # define the calculation of loss during training and validation
@@ -245,11 +253,11 @@ if __name__ == "__main__":
         print("start training")
         timestamp()
         # initialize the early_stopping object
-        early_stopping = EarlyStopping(patience=patience, delta= 0.1, verbose=False)
+        early_stopping = EarlyStopping(patience=patience, delta= esdelta, verbose=False)
         logdir = '/home/j/data/prof'
         prof = None
         for epoch in range(EPOCH):
-            train_loss, train_acc = train(model, epoch, prof)
+            train_loss, train_acc = train2(model, train_set, BATCH_SIZE, epoch)
             val_loss, val_acc = validate(model)
             if val_acc > min(val_epoch_acc):
                 torch.save(model.state_dict(), MODEL_PATH)
@@ -274,9 +282,18 @@ if __name__ == "__main__":
             if epoch % 20 == 0:
                 print(epoch, '/n', val_acc)
         torch.save(model, f'/home/j/data/outputs/models/{MODEL_NAME}.pkl')
-        test(model, test_loader, "FE")
+        test(model, test_loader, "FE", MODEL_NAME)
 
     if TESTBI:
+            # model = torch.load('/home/j/data/outputs/models/Transformer_999512_4_6_256_16_False.pkl')
+    # test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
+    # test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
+    #     #find unique values of test_y_set
+    # test_y_set.unique()
+    # test_dataset = Data.TensorDataset(test_x_set, test_y_set)
+    # test_loader_BI = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
+    # test(model, test_loader_BI, "BI", MODEL_NAME)
+        
         # test model:
         test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
         test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
@@ -284,7 +301,7 @@ if __name__ == "__main__":
         test_y_set.unique()
         test_dataset = Data.TensorDataset(test_x_set, test_y_set)
         test_loader_BI = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
-        test(model, test_loader_BI, "BI")
+        test(model, test_loader_BI, "BI", MODEL_NAME)
 
     if EXPLAIN:
         # explain model
@@ -350,3 +367,14 @@ if __name__ == "__main__":
     # f = open(logfile, 'a')
     # f.write("Model ID: " + str(UID) + "; validation accuracy: " + str(best_acc) + '\n')
     # f.close()
+            
+
+# Annex 1 tensor.view() vs tensor.reshape()
+#     view method:
+#         The view method returns a new tensor that shares the same data with the original tensor but with a different shape.
+#         If the new shape is compatible with the original shape (i.e., the number of elements remains the same), the view method can be used.
+#         However, if the new shape is not compatible with the original shape (i.e., the number of elements changes), the view method will raise an error.
+#
+#     reshape method:
+#         The reshape method also returns a new tensor with a different shape, but it may copy the data to a new memory location if necessary.
+#         It allows reshaping the tensor even when the number of elements changes, as long as the new shape is compatible with the total number of elements in the tensor.
