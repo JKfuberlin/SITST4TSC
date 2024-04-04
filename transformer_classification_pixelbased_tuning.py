@@ -32,19 +32,19 @@ sys.path.append('../') # navigating one level up to access all modules
 # flags
 PARSE = False
 GROMIT = True
-SEASONDOY = False # Use the seasonal DOY instead if the multi-year DOY
+SEASONDOY = True # Use the seasonal DOY instead if the multi-year DOY
 TRAIN = True 
 TESTBI = True # test the model on the BI data
-PREJITTER = False # apply static noise to the training data to counter spatial correlation
-TSAJ = False # Time series augmentation with jitter 
-TSARC = False # Time series augmentation with random time series sampling
+PREJITTER = True # apply static noise to the training data to counter spatial correlation
+TSAJ = True # Time series augmentation with jitter 
+TSARC = True # Time series augmentation with random time series sampling
 FOUNDATION = False # Train or apply a foundation model
 FINETUNE = False # Finetune using the BI data
 EXPLAIN = False # Explain the model
 
 
 # device = torch.device('cuda:'+args.GPU_NUM if torch.cuda.is_available() else 'cpu') # Device configuration
-device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')  # Device configuration
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
 
 if PARSE:
     parser = argparse.ArgumentParser(description='trains the Transformer with given parameters')
@@ -72,7 +72,7 @@ else:
     BATCH_SIZE = 16
     UID = 999
 
-MODEL_NAME = 'Transformer' + '_' + str(UID)+'_' + str(d_model)+'_' + str(nhead)+'_' + str(num_layers)+'_' + str(dim_feedforward)+'_' + str(BATCH_SIZE)+'_' + str(SEASONDOY)
+MODEL_NAME = 'Transformer' + '_' + str(UID)+'_' + str(d_model)+'_' + str(nhead)+'_' + str(num_layers)+'_' + str(dim_feedforward)+'_' + str(BATCH_SIZE)+'_SEASONDOY_' + str(SEASONDOY) + '_PREJITTER_' + str(PREJITTER)+'_TSAJ_' + str(TSAJ)+'_TSARC_' + str(TSARC)+'_foundation_' + str(FOUNDATION)+'_finetune_' + str(FINETUNE) + '_'
 MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME    
 
 if GROMIT:
@@ -134,49 +134,53 @@ def save_hyperparameters() -> None:
         data = json.dumps(params, indent=4)
         f.write(data)
     print('saved hyperparameters')
+
 def timestamp():
     now = datetime.now()
     current_time = now.strftime("%D:%H:%M:%S")
     print("Current Time =", current_time)
+
 def setup_seed(seed:int) -> None:
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     torch.backends.cudnn.deterministic = True # https://darinabal.medium.com/deep-learning-reproducible-results-using-pytorch-42034da5ad7
     torch.backends.cudnn.benchmark = False # not sure if these lines are needed and non-deterministic algorithms would be used otherwise
+
 def split_data(x_set:np.ndarray, y_set:np.ndarray, seed:int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Split the data into train, validation and test set"""
     size = len(x_set)
     train_size = round(0.75 * size)
     val_size = round(0.15 * size)
-    test_size = size - train_size - val_size
     generator = np.random.default_rng(seed)
     indices = np.arange(size)
     generator.shuffle(indices)
     train_indices = indices[:train_size]
     val_indices = indices[train_size:train_size+val_size]
-    test_indices = indices[train_size+val_size:]
+    test_indices = indices[train_size+val_size:] # subset everything that is left after train and validation indices
     if PREJITTER: # apply static noise to the training data to counter spatial correlation
-        x_set = csvutils.jitter_pandas(x_set, jitter=5)
+        x_set = csvutils.jitter_numpy(x_set, jitter=5)
     train_dataset = (x_set[train_indices], y_set[train_indices])
     val_dataset = (x_set[val_indices], y_set[val_indices])
     test_dataset = (x_set[test_indices], y_set[test_indices])
     return train_dataset, val_dataset, test_dataset
 
-def train2(model:nn.Module, train_dataset:np.ndarray, batch_size:int, epoch:int) -> tuple[float, float]:
+def train2(model:nn.Module, train_xset:Tensor, train_yset:Tensor, batch_size:int, epoch:int) -> tuple[float, float]:
     model.train()  # sets model into training mode
     good_pred = 0 # initialize variables for accuracy and loss metrics
     total = 0
     losses = []
-    train_loader = Data.DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, drop_last=False)
+    train_loader = Data.DataLoader(Data.TensorDataset(train_xset, train_yset), batch_size=BATCH_SIZE, shuffle=True, num_workers=4, drop_last=False) # create a dataloader for the training data
     for (batch, labels) in train_loader: # unclear whether i need to use enumerate(train_loader) or not
         labels = labels.to(device) # tensor [batch_size,] e.g. 32 labels in a tensor
-        inputs = batch.to(device) # pass the data into the gpu [32, 305, 11] batch_size, sequence max length, num_bands
+        batch = batch.to(device) # pass the data into the gpu [32, 305, 11] batch_size, sequence max length, num_bands
         if TSAJ:
-            inputs = csvutils.jitter_tensor(inputs, jitter=5) # apply jitter to the input tensor spectral values and DOY
-        if TSARC:
-            inputs = csvutils.random_sample_tensor(inputs) # apply random time series sampling to the input tensor
-        outputs = model(inputs)  # applying the model
+            batch = csvutils.jitter_tensor(device, batch, spectral_jitter=0.1, DOY_jitter=5) # apply jitter to the input tensor spectral values and DOY
+        if TSARC and SEASONDOY:
+            batch = csvutils.random_sample_tensor_seasonal(batch, labels) # apply random time series sampling to the input tensor
+        if TSARC and not SEASONDOY:
+            batch = csvutils.random_sample_tensor_additive(batch)
+        outputs = model(batch)  # applying the model
         # at this point inputs is 305,3,11. 305 [timesteps, batch_size, num_bands]
         loss = criterion(outputs, labels)  # calculating loss by comparing to the y_set
         # recording training accuracy
@@ -191,6 +195,7 @@ def train2(model:nn.Module, train_dataset:np.ndarray, batch_size:int, epoch:int)
     train_loss = np.average(losses)
     print('Epoch[{}/{}] | Train Loss: {:.4f} | Train Accuracy: {:.2f}% '.format(epoch + 1, EPOCH, train_loss, acc * 100), end="")
     return train_loss, acc
+
 def validate(model:nn.Module) -> tuple[float, float]:
     model.eval()
     with torch.no_grad():
@@ -209,6 +214,7 @@ def validate(model:nn.Module) -> tuple[float, float]:
         val_loss = np.average(losses)
     print('| Validation Loss: {:.4f} | Validation Accuracy: {:.2f}%'.format(val_loss, 100 * acc))
     return val_loss, acc
+
 def test(model:nn.Module, testloader, dataset_name:str, MODEL_NAME) -> None:
     """Test best model"""
     test_loader = testloader
@@ -232,9 +238,13 @@ def test(model:nn.Module, testloader, dataset_name:str, MODEL_NAME) -> None:
 
 if __name__ == "__main__":
 
-    train_set, val_set, test_set = split_data(x_set, y_set, SEED) # split the data into train, validation and test set, each is a tensor of two tensors (x and y)
-    train_set = csvutils.numpy_to_tensor(train_set[0], train_set[1]) # convert numpy arrays to tensors
-
+    train_dataset, val_dataset, test_dataset = split_data(x_set, y_set, SEED) # split the data into train, validation and test set, each is a tensor of two tensors (x and y)
+    train_xset, train_yset = csvutils.numpy_to_tensor(train_dataset[0], train_dataset[1]) # convert numpy arrays to tensors
+    # split them into x and y because this is the input to the dataloader whithin train()
+    val_xset, val_yset = csvutils.numpy_to_tensor(val_dataset[0], val_dataset[1]) # convert numpy arrays to tensors
+    test_xset, test_yset = csvutils.numpy_to_tensor(test_dataset[0], test_dataset[1]) # convert numpy arrays to tensors
+    val_loader = Data.DataLoader(Data.TensorDataset(val_xset, val_yset), batch_size=BATCH_SIZE, shuffle=True, num_workers=4, drop_last=False) # create a dataloader for the training data
+    test_loader = Data.DataLoader(Data.TensorDataset(test_xset, test_yset), batch_size=BATCH_SIZE, shuffle=True, num_workers=4, drop_last=False) # create a dataloader for the training data
     if TRAIN:
         setup_seed(SEED)  # set random seed to ensure reproducibility
         print(device)
@@ -257,7 +267,7 @@ if __name__ == "__main__":
         logdir = '/home/j/data/prof'
         prof = None
         for epoch in range(EPOCH):
-            train_loss, train_acc = train2(model, train_set, BATCH_SIZE, epoch)
+            train_loss, train_acc = train2(model, train_xset, train_yset, BATCH_SIZE, epoch)
             val_loss, val_acc = validate(model)
             if val_acc > min(val_epoch_acc):
                 torch.save(model.state_dict(), MODEL_PATH)

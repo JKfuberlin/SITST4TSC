@@ -92,28 +92,39 @@ def export(df:pd.DataFrame, file_path:str, index:bool=True) -> None:
     df.to_csv(file_path, index=index)
     print(f'export file {file_path}')
 
-def jitter_pandas(df:pd.DataFrame, jitter:int=5) -> pd.DataFrame: # used by main script for static jitter as well as batchwise in training
-    """Add jitter to the training data dataframe after splitting"""
-    n = len(df.columns)
-    for i in range(n): # apply jitter to spectral values
-        col_name = df.columns[i] # get column name
-        df.iloc[:, i] += np.random.uniform(-jitter, jitter, df.shape[0])
-        df.iloc[:, i] = np.where(df.iloc[:, i] < 1, 1, df.iloc[:, i]) # make sure the values don't go below 1
-        if col_name == 'DOY2':
-            df.iloc[:, i] = df.iloc[:, i].apply(lambda x: min(x, 366)) # make sure the values for DOY2 don't go above 366
-    return df
+def jitter_numpy(df:np.ndarray, jitter:int=5) -> np.ndarray:
+    for sample in range(df.shape[0]):  # Loop through each sample
+        max_val = int(np.amax(df[sample, :, 10]))  # Find maximum value in the DOY column
+        for i in range(df.shape[2]):  # Loop through each column
+            if i == 10:  # Treat DOY column differently
+                if max_val >= 100 & max_val < 367: # If max value is less than 367, it means that it is seasonal DOY
+                    original_zeros = (df[sample,:, i] == 0)  # Mask for values that are zero before jitter
+                    df[sample,:, i] += np.random.randint(-jitter, jitter, (df.shape[1])) # Apply jitter, randint because DOY is an integer
+                    df[sample,:, i] = np.clip(df[sample,:, i], None, 366)  # Clip values to maximum of 366
+                    df[sample,:, i] = np.where(df[sample,:, i] < 1, 1, df[sample,:, i])  # Ensure values don't go below 1
+                    df[sample,:, i] = np.where(original_zeros, 0, df[sample,:, i])  # Set values to 0 if they were originally zero
+                else: # it is additive DOY
+                    original_zeros = (df[sample,:, i] == 0)  # Mask for values that are zero before jitter
+                    df[sample,:, i] += np.random.randint(-jitter, jitter, (df.shape[1]))
+                    df[sample,:, i] = np.where(original_zeros, 0, df[:, i])  # Set values to 0 if they were originally zero
+            else:
+                df[sample,:, i] += np.random.uniform(-jitter, jitter, (df.shape[1])) # Apply jitter to non-DOY columns of sample
+        return df
 
-def jitter_tensor(x_data:Tensor, jitter:float=0.1) -> Tensor:
+def jitter_tensor(device, batch:Tensor, spectral_jitter:float=0.1, DOY_jitter:int=5) -> Tensor:
     """Add jitter to the tensor after chunking it in batches"""
-    x_data += torch.FloatTensor(x_data.size()).uniform_(-jitter, jitter)
-    x_data = torch.where(x_data < 1, torch.ones_like(x_data), x_data)
-    # x_data[:, -1] = torch.where(x_data[:, -1] > 366, 366 * torch.ones_like(x_data[:, -1]), x_data[:, -1])
-    mask = (x_data < 366).any(dim=0)  # Find out which dimensions have any values smaller than 366
-    for i in range(x_data.dim()):
-        if mask[i]:
-          x_data[:, i] = torch.where(x_data[:, i] > 366, 366 * torch.ones_like(x_data[:, i]), x_data[:, i])
-    # x_data = torch.where(x_data > 366, 366 * torch.ones_like(x_data), x_data)
-    return x_data
+    batch = batch.to(device) # Move batch to device if not already there, redundat
+    # Extract columns 1-10 and column 11
+    spectral = batch[..., :10]  # Select all elements along all dimensions up to the 11th dimension
+    DOY = batch[..., 10:11]  # Select only the 11th column
+    # Add jitter to columns 1-10 and column 11 separately
+    jitter_spectral = torch.FloatTensor(spectral.size()).uniform_(-spectral_jitter, spectral_jitter).to(device)
+    spectral += jitter_spectral
+    jitter_DOY = torch.randint(low= -DOY_jitter, high=DOY_jitter+1, size=DOY.size()).to(device) # DOY_jitter+1 because randint is exclusive on the upper bound
+    DOY += jitter_DOY
+    # Concatenate the two parts back together
+    batch = torch.cat((spectral, DOY), dim=-1)
+    return batch
 
 def list_to_dataframe(lst:List[List[float]], cols:List[str], decimal:bool=True) -> pd.DataFrame:
     """Transfer list to pd.DataFrame"""
@@ -155,25 +166,34 @@ def random_sample_pandas(df:pd.DataFrame, sample_size:int=200, winter_start:int=
         df = df.drop(winter_obs.index) # drop the winter observations from the dataframe
     return df.sample(sample_size) # return a random sample of the desired size
 
-def random_sample_tensor(x_data:Tensor, y_data:Tensor, sample_size:int=200, winter_start:int=300, winter_end:int=70) -> tuple[Tensor, Tensor]:
+def random_sample_tensor_additive(batch:Tensor, labels:Tensor, sample_size:int=200, winter_start:int=300, winter_end:int=70) -> tuple[Tensor, Tensor]:
+    return batch, labels
+    
+def random_sample_tensor_seasonal(batch:Tensor, labels:Tensor, sample_size:int=200, winter_start:int=300, winter_end:int=70) -> tuple[Tensor, Tensor]:
     """First drop observations from deep winter, then randomly sample the tensor"""
-    winter_obs = (x_data[:, :, -1] > winter_start) | (x_data[:, :, -1] < winter_end) # find the winter observations with DOY2 > 300 or DOY2 < 90
-    n = x_data.size(0) # find out the number of samples in the tensor
-    diff = n - winter_obs.sum() # find the difference between the number of samples in the tensor and the amount of winter observations
-    if diff > sample_size: # if the difference is greater than the sample size, drop all winter observations
-        x_data = x_data[~winter_obs]
-        y_data = y_data[~winter_obs]
+    """Apply to both, batch and labels"""
+    for sequence in batch:
+        doycol = sequence[:,10]
+        padded_obs = (doycol == 0) # find the observations that are padded with 0s
+        pdiff = sequence.size(0) - padded_obs.sum().item() # find the difference between the number of samples in the tensor and the amount of padded observations
+        winter_obs = (sequence[ :, -1] > winter_start) | (sequence[ :, -1] < winter_end) # find the winter observations with DOY2 > 300 or DOY2 < 90
+        wdiff = sequence.size(0) - winter_obs.sum().item() # find the difference between the number of samples in the tensor and the amount of winter observations
+        n = sequence.size(1) # find out the number of samples in the batch
+        if diff > sample_size: # if the difference is greater than the sample size, drop all winter observations
+            batch = batch[~winter_obs]
+            labels = labels[~winter_obs]
+        # TODO: I think the following part is wrong because the selection is wrong and the x data is shuffled against the y data leading to mismatch
     if diff < sample_size: # if the difference is smaller than the sample size, sample the winter observations and drop them from the tensor
         to_remove = sample_size - diff # calculate the number of winter observations to remove to achieve the desired sample size
         winter_obs = torch.where(winter_obs)[0] # find the indices of the winter observations
         winter_obs = winter_obs[torch.randperm(winter_obs.size(0))] # shuffle the indices
         winter_obs = winter_obs[:to_remove] # select the indices to remove
-        x_data = x_data[~winter_obs]
-        y_data = y_data[~winter_obs]
-    indices = torch.randperm(x_data.size(0)) # shuffle the indices
-    x_data = x_data[indices[:sample_size]]
-    y_data = y_data[indices[:sample_size]]
-    return x_data, y_data
+        batch = batch[~winter_obs]
+        labels = labels[~winter_obs]
+    indices = torch.randperm(batch.size(0)) #shuffle the indices
+    batch = batch[indices[:sample_size]]
+    labels = labels[indices[:sample_size]]
+    return batch, labels
 
 def subset_filenames(data_dir:str):
     # i want to find out which csv files really are existent in my subset/on my drive and only select the matching labels
@@ -284,3 +304,19 @@ def to_numpy_BI(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     y_data = np.array(y_list)
     print("transferred data to numpy array")
     return x_data, y_data
+
+
+# oldymcgeezax
+
+# def jitter_pandas(df:np.ndarray, jitter:int=5) -> np.ndarray: # used by main script for static jitter as well as batchwise in training
+#     """Add jitter to the training data dataframe after splitting"""
+#     """"I expect a df shape of [num_observations, seq_len, num_bands]"""
+#     n = df.shape[2]
+#     for i in range(n): # apply jitter to spectral values
+#         df[:, i] += np.random.uniform(-jitter, jitter, (df.shape[0], 1))
+#         df[:, i] = np.where(df[:, i] < 1, 1, df[:, i]) # make sure the values don't go below 1
+#         if i == 11: # treat DOY column differently
+#             max_val = np.amax(df[:, i]) # find the maximum value in the column
+#             if max_val < 367: # find out if the max val is lower than 367, meaning that it is seasonal DOY
+#                 df[:, i] = df[:, i].apply(lambda x: max(x, 366)) 
+#     return df
