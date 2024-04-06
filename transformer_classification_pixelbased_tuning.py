@@ -177,7 +177,7 @@ def train2(model:nn.Module, train_xset:Tensor, train_yset:Tensor, batch_size:int
         if TSAJ:
             batch = csvutils.jitter_tensor(device, batch, spectral_jitter=0.1, DOY_jitter=5) # apply jitter to the input tensor spectral values and DOY
         if TSARC and SEASONDOY:
-            batch = csvutils.random_sample_tensor_seasonal(batch, labels) # apply random time series sampling to the input tensor
+            batch = csvutils.random_sample_tensor_seasonal(batch) # apply random time series sampling to the input tensor
         if TSARC and not SEASONDOY:
             batch = csvutils.random_sample_tensor_additive(batch)
         outputs = model(batch)  # applying the model

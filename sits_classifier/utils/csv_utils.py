@@ -113,16 +113,17 @@ def jitter_numpy(df:np.ndarray, jitter:int=5) -> np.ndarray:
 
 def jitter_tensor(device, batch:Tensor, spectral_jitter:float=0.1, DOY_jitter:int=5) -> Tensor:
     """Add jitter to the tensor after chunking it in batches"""
-    batch = batch.to(device) # Move batch to device if not already there, redundat
+    batch = batch.to(device) # Move batch to device if not already there, redundant
     # Extract columns 1-10 and column 11
     spectral = batch[..., :10]  # Select all elements along all dimensions up to the 11th dimension
     DOY = batch[..., 10:11]  # Select only the 11th column
     # Add jitter to columns 1-10 and column 11 separately
     jitter_spectral = torch.FloatTensor(spectral.size()).uniform_(-spectral_jitter, spectral_jitter).to(device)
     spectral += jitter_spectral
+    original_zeros = (DOY == 0)  # Mask for values that are zero before jitter
     jitter_DOY = torch.randint(low= -DOY_jitter, high=DOY_jitter+1, size=DOY.size()).to(device) # DOY_jitter+1 because randint is exclusive on the upper bound
-    DOY += jitter_DOY
-    # Concatenate the two parts back together
+    DOY += jitter_DOY # Concatenate the two parts back together
+    DOY[original_zeros] = 0 # Set values to 0 if they were originally zero
     batch = torch.cat((spectral, DOY), dim=-1)
     return batch
 
@@ -169,31 +170,32 @@ def random_sample_pandas(df:pd.DataFrame, sample_size:int=200, winter_start:int=
 def random_sample_tensor_additive(batch:Tensor, labels:Tensor, sample_size:int=200, winter_start:int=300, winter_end:int=70) -> tuple[Tensor, Tensor]:
     return batch, labels
     
-def random_sample_tensor_seasonal(batch:Tensor, labels:Tensor, sample_size:int=200, winter_start:int=300, winter_end:int=70) -> tuple[Tensor, Tensor]:
+def random_sample_tensor_seasonal(batch:Tensor, sample_size:int=200, winter_start:int=300, winter_end:int=70) -> tuple[Tensor, Tensor]:
     """First drop observations from deep winter, then randomly sample the tensor"""
     """Apply to both, batch and labels"""
-    for sequence in batch:
-        doycol = sequence[:,10]
-        padded_obs = (doycol == 0) # find the observations that are padded with 0s
-        pdiff = sequence.size(0) - padded_obs.sum().item() # find the difference between the number of samples in the tensor and the amount of padded observations
-        winter_obs = (sequence[ :, -1] > winter_start) | (sequence[ :, -1] < winter_end) # find the winter observations with DOY2 > 300 or DOY2 < 90
-        wdiff = sequence.size(0) - winter_obs.sum().item() # find the difference between the number of samples in the tensor and the amount of winter observations
-        n = sequence.size(1) # find out the number of samples in the batch
-        if diff > sample_size: # if the difference is greater than the sample size, drop all winter observations
-            batch = batch[~winter_obs]
-            labels = labels[~winter_obs]
-        # TODO: I think the following part is wrong because the selection is wrong and the x data is shuffled against the y data leading to mismatch
-    if diff < sample_size: # if the difference is smaller than the sample size, sample the winter observations and drop them from the tensor
-        to_remove = sample_size - diff # calculate the number of winter observations to remove to achieve the desired sample size
-        winter_obs = torch.where(winter_obs)[0] # find the indices of the winter observations
-        winter_obs = winter_obs[torch.randperm(winter_obs.size(0))] # shuffle the indices
-        winter_obs = winter_obs[:to_remove] # select the indices to remove
-        batch = batch[~winter_obs]
-        labels = labels[~winter_obs]
-    indices = torch.randperm(batch.size(0)) #shuffle the indices
-    batch = batch[indices[:sample_size]]
-    labels = labels[indices[:sample_size]]
-    return batch, labels
+    """Lots of redundance, because i always expect batches to be uniform and have the same sequence length for every observation but this way it is safer""" 
+    new_batch = torch.empty((batch.shape[0], sample_size, batch.shape[2]), dtype=batch.dtype)  # Create a new tensor with desired size
+    for sequence in range(batch.shape[1]):
+        padded_obs = (batch[sequence,:,10] == 0) # find the observations that are padded with 0s
+        winter_obs = (batch[sequence,:, -1] > winter_start) | (batch[sequence,:, -1] < winter_end) # find the winter observations with DOY2 > 300 or DOY2 < 90
+        todelete = batch.shape[1]-sample_size # calculate the number of samples to delete
+        if padded_obs.sum().item() <= todelete: # delete all padded observations if possible
+            new_batch[sequence,:,:] = batch[sequence,~padded_obs,:] 
+        else: # in case there are more padded observations than being able to delete
+            indices = torch.where(padded_obs)[0] # find the indices of the padded observations
+            indices = indices[torch.randperm(indices.size(0))] # shuffle the indices
+            indices = indices[:todelete] # select the indices to drop
+            new_batch[sequence,:,:] = batch[sequence,~indices,:] # drop the specified amount of padded observations from the batch
+        
+        if batch.shape[1] > sample_size: # now drop winter observations and randoms until target is achieved
+            to_remove = batch.shape[1] - sample_size  # calculate the number of winter observations to remove to achieve the desired sample size
+            winter_obs = torch.where(winter_obs)[0] # find the indices of the winter observations
+            winter_obs = winter_obs[:to_remove] # select the indices to remove
+            new_batch[sequence,:,:] = batch[sequence,~winter_obs,:] #
+        if batch.shape[1] > sample_size: # now drop random observations until target is achieved
+            indices = torch.randperm(batch.size(0)) # select 200 random indices
+            new_batch[sequence,:,:] =  batch[indices[:sample_size]]
+    return new_batch
 
 def subset_filenames(data_dir:str):
     # i want to find out which csv files really are existent in my subset/on my drive and only select the matching labels
