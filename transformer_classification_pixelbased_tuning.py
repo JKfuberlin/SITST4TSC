@@ -104,7 +104,7 @@ SEED = 420 # a random seed for reproduction, at some point i should try differen
 patience = 5 # early stopping patience; how long to wait after last time validation loss improved.
 num_bands = 10 # number of different bands from Sentinel 2
 num_classes = 10 # the number of different classes that are supposed to be distinguished
-sequence_length = x_set.shape[1] # this retrieves the sequence length from the x_set numpy array
+sequence_length = 200 # this is the sequence length i want to work with
 esdelta = 0.1 # early stopping delta
 WINTERSTART = 300 # the start of the winter season as DOY
 WINTEREND = 70 # the end of the winter season as DOY
@@ -193,6 +193,7 @@ def train2(model:nn.Module, train_xset:Tensor, train_yset:Tensor, batch_size:int
         optimizer.step()
     acc = good_pred / total
     train_loss = np.average(losses)
+    timestamp()
     print('Epoch[{}/{}] | Train Loss: {:.4f} | Train Accuracy: {:.2f}% '.format(epoch + 1, EPOCH, train_loss, acc * 100), end="")
     return train_loss, acc
 
@@ -292,7 +293,7 @@ if __name__ == "__main__":
             if epoch % 20 == 0:
                 print(epoch, '/n', val_acc)
         torch.save(model, f'/home/j/data/outputs/models/{MODEL_NAME}.pkl')
-        test(model, test_loader, "FE", MODEL_NAME)
+        test(model, test_loader, "FE", MODEL_NAME)    
 
     if TESTBI:
             # model = torch.load('/home/j/data/outputs/models/Transformer_999512_4_6_256_16_False.pkl')

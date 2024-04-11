@@ -174,27 +174,35 @@ def random_sample_tensor_seasonal(batch:Tensor, sample_size:int=200, winter_star
     """First drop observations from deep winter, then randomly sample the tensor"""
     """Apply to both, batch and labels"""
     """Lots of redundance, because i always expect batches to be uniform and have the same sequence length for every observation but this way it is safer""" 
-    new_batch = torch.empty((batch.shape[0], sample_size, batch.shape[2]), dtype=batch.dtype)  # Create a new tensor with desired size
-    for sequence in range(batch.shape[1]):
-        padded_obs = (batch[sequence,:,10] == 0) # find the observations that are padded with 0s
-        winter_obs = (batch[sequence,:, -1] > winter_start) | (batch[sequence,:, -1] < winter_end) # find the winter observations with DOY2 > 300 or DOY2 < 90
+    ls = [] # Create an empty list to be my final batch
+    for i in range(batch.shape[0]):
+        padded_obs = (batch[i,:,10] == 0) # find the observations that are padded with 0s
         todelete = batch.shape[1]-sample_size # calculate the number of samples to delete
         if padded_obs.sum().item() <= todelete: # delete all padded observations if possible
-            new_batch[sequence,:,:] = batch[sequence,~padded_obs,:] 
+            item = batch[i, ~padded_obs, :]
         else: # in case there are more padded observations than being able to delete
+            item = batch[i, :, :]
             indices = torch.where(padded_obs)[0] # find the indices of the padded observations
             indices = indices[torch.randperm(indices.size(0))] # shuffle the indices
             indices = indices[:todelete] # select the indices to drop
-            new_batch[sequence,:,:] = batch[sequence,~indices,:] # drop the specified amount of padded observations from the batch
-        
-        if batch.shape[1] > sample_size: # now drop winter observations and randoms until target is achieved
-            to_remove = batch.shape[1] - sample_size  # calculate the number of winter observations to remove to achieve the desired sample size
+            mask = torch.ones(item.shape[0], dtype=bool).cuda()  # Create a mask of True values
+            mask[indices] = False  # Set the indices you want to remove to False
+            item = item[mask, :]  # Apply the mask to item
+        if item.shape[0] > sample_size: # now drop winter observations and randoms until target is achieved
+            to_remove = item.shape[0] - sample_size  # calculate the number of winter observations to remove to achieve the desired sample size
+            winter_obs = (item[:, -1] > winter_start) | (item[:, -1] < winter_end) # find the winter observations with DOY2 > 300 or DOY2 < 90
             winter_obs = torch.where(winter_obs)[0] # find the indices of the winter observations
             winter_obs = winter_obs[:to_remove] # select the indices to remove
-            new_batch[sequence,:,:] = batch[sequence,~winter_obs,:] #
-        if batch.shape[1] > sample_size: # now drop random observations until target is achieved
-            indices = torch.randperm(batch.size(0)) # select 200 random indices
-            new_batch[sequence,:,:] =  batch[indices[:sample_size]]
+            mask = torch.ones(len(item), dtype=bool).cuda()
+            mask[winter_obs] = False
+            item = item[mask, :]
+            # item = item[~winter_obs,:]
+        if item.shape[0] > sample_size: # now drop random observations until target is achieved
+            indices = torch.randperm(item.size(0)) # select 200 random indices
+            item =  item[indices[:sample_size],:]
+        ls.append(item)
+        item = None
+    new_batch = torch.stack(ls)
     return new_batch
 
 def subset_filenames(data_dir:str):
