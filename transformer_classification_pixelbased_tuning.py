@@ -30,7 +30,7 @@ from captum.attr import ( # explainable AI
 sys.path.append('../') # navigating one level up to access all modules
 
 # flags
-PARSE = False
+PARSE = True
 GROMIT = True
 SEASONDOY = True # Use the seasonal DOY instead if the multi-year DOY
 TRAIN = True 
@@ -42,14 +42,10 @@ FOUNDATION = False # Train or apply a foundation model
 FINETUNE = False # Finetune using the BI data
 EXPLAIN = False # Explain the model
 
-
-# device = torch.device('cuda:'+args.GPU_NUM if torch.cuda.is_available() else 'cpu') # Device configuration
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
-
 if PARSE:
     parser = argparse.ArgumentParser(description='trains the Transformer with given parameters')
     parser.add_argument('UID', type=int, help='the unique ID of this particular model')
-    # parser.add_argument('GPU_NUM', type=int, help='which GPU to use, necessary for parallelization')
+    parser.add_argument('GPU_NUM', type=int, help='which GPU to use, necessary for parallelization')
     parser.add_argument('d_model', type=int, help='d_model')
     parser.add_argument('nhead', type=int, help='number of transformer heads')
     parser.add_argument('num_layers', type=int, help='number of layers')
@@ -57,6 +53,7 @@ if PARSE:
     parser.add_argument('batch_size', type=int, help='batch size')
     args = parser.parse_args()
     # hyperparameters for LSTM and argparse
+    device = torch.device('cuda:'+str(args.GPU_NUM) if torch.cuda.is_available() else 'cpu') # Device configuration
     d_model = args.d_model  # larger
     nhead = args.nhead  # larger
     num_layers = args.num_layers  # larger
@@ -66,11 +63,12 @@ if PARSE:
     print(f"UID = {UID}")
 else:
     d_model = 512 
-    nhead = 4 # avoid AssertionError: embed_dim must be divisible by num_heads
-    num_layers = 6
-    dim_feedforward = 256
+    nhead = 8 # avoid AssertionError: embed_dim must be divisible by num_heads
+    num_layers = 3
+    dim_feedforward = 4096
     BATCH_SIZE = 16
     UID = 999
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
 
 MODEL_NAME = 'Transformer' + '_' + str(UID)+'_' + str(d_model)+'_' + str(nhead)+'_' + str(num_layers)+'_' + str(dim_feedforward)+'_' + str(BATCH_SIZE)+'_SEASONDOY_' + str(SEASONDOY) + '_PREJITTER_' + str(PREJITTER)+'_TSAJ_' + str(TSAJ)+'_TSARC_' + str(TSARC)+'_foundation_' + str(FOUNDATION)+'_finetune_' + str(FINETUNE) + '_'
 MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME    
@@ -83,11 +81,6 @@ if GROMIT:
     else:
         x_set = np.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_years.npy')
     y_set = np.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/y_set_pxl_buffered_balanced_species.npy')
-    d_model = 512 
-    nhead = 8 # avoid AssertionError: embed_dim must be divisible by num_heads
-    num_layers = 3
-    dim_feedforward = 4096
-    BATCH_SIZE = 16
     EPOCH = 420
     LR = 0.00001  # learning rate, which in theory could be within the scope of parameter tuning
 else:
@@ -105,7 +98,7 @@ patience = 5 # early stopping patience; how long to wait after last time validat
 num_bands = 10 # number of different bands from Sentinel 2
 num_classes = 10 # the number of different classes that are supposed to be distinguished
 sequence_length = 200 # this is the sequence length i want to work with
-esdelta = 0.1 # early stopping delta
+esdelta = 0.04 # early stopping delta
 WINTERSTART = 300 # the start of the winter season as DOY
 WINTEREND = 70 # the end of the winter season as DOY
     
@@ -177,7 +170,7 @@ def train2(model:nn.Module, train_xset:Tensor, train_yset:Tensor, batch_size:int
         if TSAJ:
             batch = csvutils.jitter_tensor(device, batch, spectral_jitter=0.1, DOY_jitter=5) # apply jitter to the input tensor spectral values and DOY
         if TSARC and SEASONDOY:
-            batch = csvutils.random_sample_tensor_seasonal(batch) # apply random time series sampling to the input tensor
+            batch = csvutils.random_sample_tensor_seasonal(batch, device=device) # apply random time series sampling to the input tensor
         if TSARC and not SEASONDOY:
             batch = csvutils.random_sample_tensor_additive(batch)
         outputs = model(batch)  # applying the model
@@ -296,19 +289,14 @@ if __name__ == "__main__":
         test(model, test_loader, "FE", MODEL_NAME)    
 
     if TESTBI:
-            # model = torch.load('/home/j/data/outputs/models/Transformer_999512_4_6_256_16_False.pkl')
-    # test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
-    # test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
-    #     #find unique values of test_y_set
-    # test_y_set.unique()
-    # test_dataset = Data.TensorDataset(test_x_set, test_y_set)
-    # test_loader_BI = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
-    # test(model, test_loader_BI, "BI", MODEL_NAME)
-        
         # test model:
         test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
         test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
         #find unique values of test_y_set
+        if SEASONDOY: # if the seasonal DOY is used, the test_x_set needs to be reshaped and the last column removed
+            test_x_set = test_x_set[:, :, :-1]
+        else: # if the multi-year DOY is used, the test_x_set needs to be reshaped and the second to last column removed
+            test_x_set = torch.cat((test_x_set[:, :, :9], test_x_set[:, :, 10:]), dim=2)
         test_y_set.unique()
         test_dataset = Data.TensorDataset(test_x_set, test_y_set)
         test_loader_BI = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)

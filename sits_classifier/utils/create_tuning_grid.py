@@ -20,6 +20,7 @@ if LSTM == 1:
 else: # Transformer
     # IMPORTANT: d_model needs to be divisible by nhead!
     # Define the possible values for each argument
+    gpu = [0]
     d_model = [512, 1008] # 128 - 1028 This parameter represents the dimensionality of the model. Higher values provide the model with more capacity to learn complex patterns but also increase computational requirements.
     nhead = [4, 8] # 2 - 16 The number of attention heads. A higher number allows the model to focus on different parts of the input sequence simultaneously.
     num_layers = [6, 12] # 2 - 12 This parameter controls the depth of the model. Deeper models can capture more intricate patterns but might require more data and computation.
@@ -28,9 +29,25 @@ else: # Transformer
 
     # Generate the grid of argument combinations
     grid = list(itertools.product(d_model, nhead, num_layers, dim_feedforward, batch_size))
+
+    # Calculate the midpoint index to split the grid into two equal halves
+    midpoint = len(grid) // 2
+
+    # Split the grid into two halves
+    grid_gpu0 = grid[:midpoint]
+    grid_gpu1 = grid[midpoint:]
+
+    # Prepend GPU number to each combination in the first half
+    grid_gpu0 = [[gpu, *params] for gpu, params in itertools.product([0], grid_gpu0)]
+
+    # Prepend GPU number to each combination in the second half
+    grid_gpu1 = [[gpu, *params] for gpu, params in itertools.product([1], grid_gpu1)]
+
     # Save the grid to a file
-    with open('/home/jonathan/data/tuning_grid_transformer_pixelbased.json', 'w') as f:
-        json.dump(grid, f)
+    with open('/home/j/data/tuning_grid_transformer_pixelbased_gpu0.json', 'w') as f:
+        json.dump(grid_gpu0, f)
+    with open('/home/j/data/tuning_grid_transformer_pixelbased_gpu1.json', 'w') as f:
+        json.dump(grid_gpu1, f)
 
 '''can't get dump(indent = 2) method to work to add newlines after each combination
 use :%s/],/],\r/g in vim instead'''

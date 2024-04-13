@@ -170,10 +170,11 @@ def random_sample_pandas(df:pd.DataFrame, sample_size:int=200, winter_start:int=
 def random_sample_tensor_additive(batch:Tensor, labels:Tensor, sample_size:int=200, winter_start:int=300, winter_end:int=70) -> tuple[Tensor, Tensor]:
     return batch, labels
     
-def random_sample_tensor_seasonal(batch:Tensor, sample_size:int=200, winter_start:int=300, winter_end:int=70) -> tuple[Tensor, Tensor]:
+def random_sample_tensor_seasonal(batch:Tensor, sample_size:int=200, winter_start:int=300, winter_end:int=70, device='cuda:0') -> tuple[Tensor, Tensor]:
     """First drop observations from deep winter, then randomly sample the tensor"""
     """Apply to both, batch and labels"""
     """Lots of redundance, because i always expect batches to be uniform and have the same sequence length for every observation but this way it is safer""" 
+    device = device
     ls = [] # Create an empty list to be my final batch
     for i in range(batch.shape[0]):
         padded_obs = (batch[i,:,10] == 0) # find the observations that are padded with 0s
@@ -185,7 +186,7 @@ def random_sample_tensor_seasonal(batch:Tensor, sample_size:int=200, winter_star
             indices = torch.where(padded_obs)[0] # find the indices of the padded observations
             indices = indices[torch.randperm(indices.size(0))] # shuffle the indices
             indices = indices[:todelete] # select the indices to drop
-            mask = torch.ones(item.shape[0], dtype=bool).cuda()  # Create a mask of True values
+            mask = torch.ones(item.shape[0], dtype=bool, device=device)  # Create a mask of True values
             mask[indices] = False  # Set the indices you want to remove to False
             item = item[mask, :]  # Apply the mask to item
         if item.shape[0] > sample_size: # now drop winter observations and randoms until target is achieved
@@ -193,7 +194,7 @@ def random_sample_tensor_seasonal(batch:Tensor, sample_size:int=200, winter_star
             winter_obs = (item[:, -1] > winter_start) | (item[:, -1] < winter_end) # find the winter observations with DOY2 > 300 or DOY2 < 90
             winter_obs = torch.where(winter_obs)[0] # find the indices of the winter observations
             winter_obs = winter_obs[:to_remove] # select the indices to remove
-            mask = torch.ones(len(item), dtype=bool).cuda()
+            mask = torch.ones(len(item), dtype=bool, device=device)
             mask[winter_obs] = False
             item = item[mask, :]
             # item = item[~winter_obs,:]
