@@ -3,6 +3,7 @@ from torch import nn, Tensor
 from torch.nn.modules.normalization import LayerNorm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 import math
+import sits_classifier.utils.csv_utils as csvutils # my costum functions
 
 '''
 This script defines an instance of the Transformer Object for Classification
@@ -56,7 +57,8 @@ class TransformerClassifier(nn.Module):
         self.d_model = d_model
         # encoder embedding, here a linear transformation is used to create the embedding, apparently it is an instance of nn.Linear that takes num_bands and d_model as args
         self.src_embd = nn.Linear(num_bands, d_model) # GPT: this linear transformation involves multiplying the input by a weight matrix and adding a bias vector.
-
+        # Maybe i need to initialize positional encoding here:
+        self.PEinstance = PositionalEncoding(d_model=d_model, max_len=max_len)
         # transformer model
         encoder_layer = TransformerEncoderLayer(d_model*2, nhead, dim_feedforward, batch_first=True) # batch_first = True to avoid a warning concerning nested tensors and probably speeding up inference
         encoder_norm = LayerNorm(d_model*2)
@@ -85,10 +87,10 @@ class TransformerClassifier(nn.Module):
 
         if len(input_sequence.shape) == 2:
             # Add a batch dimension if it's not present (assuming batch size of 1)
-            input_sequence = input_sequence.unsqueeze(1)
+            input_sequence = input_sequence.unsqueeze(0) # 0 adds the dimension in the beginning to keep order
+        input_sequence = csvutils.remove_zero_observations(input_sequence)
         input_sequence_bands = input_sequence[:,:,0:10] # this is the input sequence without DOY
         obs_embed = self.src_embd(input_sequence_bands)  # [batch_size, seq_len, d_model] #
-        self.PEinstance = PositionalEncoding(d_model=self.d_model, max_len=max_len)
         # this is where the input of form [batch_size, seq_len, n_bands] is passed through the linear transformation of the function src_embd()
         # to create the embeddings
         # Repeat obs_embed to match the shape [batch_size, seq_len, embedding_dim*2]
@@ -96,6 +98,7 @@ class TransformerClassifier(nn.Module):
         # Add positional encoding based on day-of-year
         # X dimensions are [batch_size, seq_length, d_model*2], iterates over number of samples in each batch
         for i in range(input_sequence.size(0)):
+            a = self.PEinstance(input_sequence[i, :, 9].long()).squeeze()
             x[i, :, self.d_model:] = self.PEinstance(input_sequence[i, :, 10].long()).squeeze()
         # each batch's embedding is sliced and the second half replaced with a positional embedding of the DOY (11th column of the input_sequence) at the corresponding observation i
 

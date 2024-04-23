@@ -10,9 +10,11 @@ import rioxarray as rxr # for raster clipping
 from shapely.geometry import mapping # for clipping
 from rasterio.transform import from_origin # for assigning an origin to the created map
 import pandas as pd
+from sits_classifier.models.transformer import TransformerClassifier # import the model class
+from sits_classifier.models.transformer import PositionalEncoding # import the model class
 
 def predict(pixel): # data_for_prediction should be a tensor of a single pixel
-    model_pkl.eval()  # set model to eval mode to avoid dropout layer
+    # model_pkl.eval()  # set model to eval mode to avoid dropout layer
     pixel.to(device)
     with (torch.no_grad()):  # do not track gradients during forward pass to speed up
         output_probabilities = model_pkl(pixel.unsqueeze(0))  # Add batch dimension to use the entire time series as input, opposed to just model_pkl(pixel)
@@ -29,7 +31,6 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Devic
 print(device)
 All = False
 GROMIT = True
-EOLAB = False
 CLASSIFY = False # if True, map the class with the highest probability, else write the max probability (confidence) into raster
 
 if All == True:
@@ -79,18 +80,16 @@ if All == True:
             break
 if GROMIT == True:
     print('running on gromit')
-    model_pkl = torch.load('/home/j/data/outputs/models/lqnld.pkl', map_location=torch.device(device))
+    checkpoint = torch.load('/home/j/data/outputs/models/Transformer_12_1008_4_12_4096_128_SEASONDOY_True_PREJITTER_True_TSAJ_True_TSARC_True_foundation_False_finetune_False_', map_location=torch.device(device))
+    # Access the model from the loaded dictionary
+    # model_pkl = checkpoint['model']
+    # model_pkl = torch.load('/home/j/data/outputs/models/Transformer_12_1008_4_12_4096_128_SEASONDOY_True_PREJITTER_True_TSAJ_True_TSARC_True_foundation_False_finetune_False_', map_location=torch.device(device))
     clipped_datacube = np.load('/home/j/data/test_pixel_north_dc1.npy')
     DOY = pd.read_csv('/home/j/data/DOY/test_pixel_north1.csv', sep = '\t', header = None)
     crop_shape = gpd.read_file('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/validation_area/Test_pixel_north1.gpkg')
-if EOLAB == True:
-    DOY = pd.read_csv('/point_storage/data/doy_pixel_subset.my_csv', sep='\t', header=None)
-    clipped_datacube = np.load('/point_storage/data/landshut_cropped_dc.npy')
-    model_pkl = torch.load('/point_storage/data/Transformer_1.pkl', map_location=device)
-    crop_shape = gpd.read_file('/point_storage/landshut_minibatch.gpkg')
+
 
 print('DOY, model and datacube loaded')
-
 DOY = np.array(DOY)
 datacube_np = np.array(clipped_datacube, ndmin = 4) # this is now a clipped datacube for the first minitile, fixing it to be 4 dimensions
 datacube_norm = (clipped_datacube - clipped_datacube.mean(axis=0)) / (clipped_datacube.std(axis=0) + 1e-6)
@@ -143,6 +142,13 @@ data_for_prediction = torch.tensor(normalized_inference_datacube) # turn the num
 data_for_prediction = data_for_prediction.to(torch.float32) # ...so we need to transfer it to float32 so that the model can use it as input
 data_for_prediction = data_for_prediction.to(device)
 
+print('finicky model loading')
+model_pkl = TransformerClassifier(num_bands=10, num_classes=10, d_model=1008, nhead=4, num_layers=12, dim_feedforward=4096, sequence_length=200).to(device)
+# MODEL_NAME = 'Transformer' + '_' + str(UID)+'_' + str(d_model)+'_' + str(nhead)+'_' + str(num_layers)+'_' + str(dim_feedforward)+'_' + str(BATCH_SIZE)+'_SEASONDOY_' + str(SEASONDOY) + '_PREJITTER_' + str(PREJITTER)+'_TSAJ_' + str(TSAJ)+'_TSARC_' + str(TSARC)+'_foundation_' + str(FOUNDATION)+'_finetune_' + str(FINETUNE) + '_'
+# 12_1008_4_12_4096_128
+# Load the parameters into the model
+model_pkl.load_state_dict(checkpoint)
+model_pkl.eval()  # set model to eval mode to avoid dropout layer
 print('starting for loop prediction')
 result = np.zeros((x, y, 1))
 for row in range(x):
@@ -174,7 +180,7 @@ metadata = {
 
 result = map[:, :, 0]
 print('writing')
-with rasterio.open(os.path.join('/home/j/data/', 'aoi_north1_transformer_lqnld_probs.tif'), 'w', **metadata) as dst:
+with rasterio.open(os.path.join('/home/j/data/', 'aoi_north1_transformer_april13_I_probs.tif'), 'w', **metadata) as dst:
     # dst.write_band(1, map.astype(rasterio.float32))
     dst.write(result.astype(rasterio.float32), indexes=1)
 print('written')

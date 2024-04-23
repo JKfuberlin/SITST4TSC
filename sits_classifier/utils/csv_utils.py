@@ -6,7 +6,6 @@ import torch
 from torch import Tensor
 import torch.utils.data as Data
 
-
 def balance_labels(label_path:str): # used by ??? i think i do this in R now
     labels = custom_load(label_path, 'ID')
     label_counts = labels["encoded"].value_counts() # find out the least common class in the labels and count the occurrences of each label
@@ -92,23 +91,23 @@ def export(df:pd.DataFrame, file_path:str, index:bool=True) -> None:
     df.to_csv(file_path, index=index)
     print(f'export file {file_path}')
 
-def jitter_numpy(df:np.ndarray, jitter:int=5) -> np.ndarray:
+def jitter_numpy(df:np.ndarray, spectraljitter:float=0.1, DOYjitter:int=5) -> np.ndarray: 
     for sample in range(df.shape[0]):  # Loop through each sample
         max_val = int(np.amax(df[sample, :, 10]))  # Find maximum value in the DOY column
         for i in range(df.shape[2]):  # Loop through each column
             if i == 10:  # Treat DOY column differently
                 if max_val >= 100 & max_val < 367: # If max value is less than 367, it means that it is seasonal DOY
                     original_zeros = (df[sample,:, i] == 0)  # Mask for values that are zero before jitter
-                    df[sample,:, i] += np.random.randint(-jitter, jitter, (df.shape[1])) # Apply jitter, randint because DOY is an integer
+                    df[sample,:, i] += np.random.randint(-DOYjitter, DOYjitter, (df.shape[1])) # Apply jitter, randint because DOY is an integer
                     df[sample,:, i] = np.clip(df[sample,:, i], None, 366)  # Clip values to maximum of 366
                     df[sample,:, i] = np.where(df[sample,:, i] < 1, 1, df[sample,:, i])  # Ensure values don't go below 1
                     df[sample,:, i] = np.where(original_zeros, 0, df[sample,:, i])  # Set values to 0 if they were originally zero
                 else: # it is additive DOY
                     original_zeros = (df[sample,:, i] == 0)  # Mask for values that are zero before jitter
-                    df[sample,:, i] += np.random.randint(-jitter, jitter, (df.shape[1]))
+                    df[sample,:, i] += np.random.randint(-DOYjitter, DOYjitter, (df.shape[1]))
                     df[sample,:, i] = np.where(original_zeros, 0, df[:, i])  # Set values to 0 if they were originally zero
             else:
-                df[sample,:, i] += np.random.uniform(-jitter, jitter, (df.shape[1])) # Apply jitter to non-DOY columns of sample
+                df[sample,:, i] += np.random.uniform(-spectraljitter, spectraljitter, (df.shape[1])) # Apply jitter to non-DOY columns of sample
         return df
 
 def jitter_tensor(device, batch:Tensor, spectral_jitter:float=0.1, DOY_jitter:int=5) -> Tensor:
@@ -206,6 +205,29 @@ def random_sample_tensor_seasonal(batch:Tensor, sample_size:int=200, winter_star
     new_batch = torch.stack(ls)
     return new_batch
 
+def remove_zero_observations(tensor):
+    """
+    Remove observations containing only zeros from a PyTorch tensor.
+
+    Args:
+    - tensor: Input PyTorch tensor of shape (N, M, P), where N is the number of observations,
+              M is the first dimension size, and P is the second dimension size.
+
+    Returns:
+    - filtered_tensor: PyTorch tensor with observations containing only zeros removed.
+    """
+    # Find indices of observations containing all zeros
+    zero_indices = torch.any(tensor == 0, dim=2)
+    # zero_indices = torch.any(tensor == 0, dim=(1, 2))
+    
+    # Filter out observations with all zeros
+    filtered_tensor = tensor[~zero_indices]
+
+    if tensor.shape[0] == 1:# Reshape the filtered tensor if batch == 1
+        filtered_tensor = filtered_tensor.view(1, -1, 11)  # -1 infers the size along that dimension
+
+    return filtered_tensor
+
 def subset_filenames(data_dir:str):
     # i want to find out which csv files really are existent in my subset/on my drive and only select the matching labels
     import glob
@@ -284,7 +306,7 @@ def to_numpy_subset(data_dir:str, labels, SPECIES) -> Tuple[np.ndarray, np.ndarr
     return x_data, y_data
 
 def to_numpy_BI(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
-    """Load label and time series data, transfer them to numpy array"""
+    """Load label and time series data, transfer them from csv to numpy arrays"""
     labels = labels
     max_len = 0 # Step 1: find max time steps
     for id in labels['ID']:
@@ -297,9 +319,7 @@ def to_numpy_BI(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
     x_list = []
     y_list = []
     for _,row in labels.iterrows():
-        ID = int(row.iloc[0])
-        # info = tuple[1] # access the first element of the tuple, which is a <class 'pandas.core.series.Series'>
-        # ID = int(info[0]) # the true value for the ID after NA removal and some messing up is here, this value identifies the csv
+        ID = int(row.iloc[1]) #hardcoded ID column, this value identifies the csv
         df_path = os.path.join(data_dir, f'{ID}.csv')
         df = custom_load(df_path, False)
         if 'date' in df.columns:
@@ -308,6 +328,11 @@ def to_numpy_BI(data_dir:str, labels) -> Tuple[np.ndarray, np.ndarray]:
         padding = np.zeros((max_len - x.shape[0], x.shape[1]))# use 0 padding make sequence length equal
         x = np.concatenate((x, padding), dtype=np.float32) # the 0s are appended to the end, will need to change this in the future to fill in missing observations
         y = int(row.iloc[2])# this is the label
+        # some checks for debugging
+        if x.shape[0] != max_len:
+            print(ID)
+        if x.shape[1] != 12:
+            print(ID)
         x_list.append(x)
         y_list.append(y)
     # concatenate array list

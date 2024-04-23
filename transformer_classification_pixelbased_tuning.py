@@ -30,14 +30,14 @@ from captum.attr import ( # explainable AI
 sys.path.append('../') # navigating one level up to access all modules
 
 # flags
-PARSE = True
+PARSE = False
 GROMIT = True
 SEASONDOY = True # Use the seasonal DOY instead if the multi-year DOY
 TRAIN = True 
 TESTBI = True # test the model on the BI data
 PREJITTER = True # apply static noise to the training data to counter spatial correlation
-TSAJ = True # Time series augmentation with jitter 
-TSARC = True # Time series augmentation with random time series sampling
+TSAJ = False # Time series augmentation with jitter , this is redundant and does the same as PREJITTER
+TSARS = True # Time series augmentation with random time series sampling
 FOUNDATION = False # Train or apply a foundation model
 FINETUNE = False # Finetune using the BI data
 EXPLAIN = False # Explain the model
@@ -70,21 +70,21 @@ else:
     UID = 999
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')  # Device configuration
 
-MODEL_NAME = 'Transformer' + '_' + str(UID)+'_' + str(d_model)+'_' + str(nhead)+'_' + str(num_layers)+'_' + str(dim_feedforward)+'_' + str(BATCH_SIZE)+'_SEASONDOY_' + str(SEASONDOY) + '_PREJITTER_' + str(PREJITTER)+'_TSAJ_' + str(TSAJ)+'_TSARC_' + str(TSARC)+'_foundation_' + str(FOUNDATION)+'_finetune_' + str(FINETUNE) + '_'
+MODEL_NAME = 'Transformer' + '_' + str(UID)+'_' + str(d_model)+'_' + str(nhead)+'_' + str(num_layers)+'_' + str(dim_feedforward)+'_' + str(BATCH_SIZE)+'_SEASONDOY_' + str(SEASONDOY) + '_PREJITTER_' + str(PREJITTER)+'_TSAJ_' + str(TSAJ)+'_TSARC_' + str(TSARS)+'_foundation_' + str(FOUNDATION)+'_finetune_' + str(FINETUNE) + '_'
 MODEL_PATH = '/home/j/data/outputs/models/' + MODEL_NAME    
 
 if GROMIT:
     PATH = '/home/j/data/'
     MODEL = 'Transformer'
     if SEASONDOY:
-        x_set = np.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_season.npy')
+        x_set = np.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_nonstan_species_season.npy')
     else:
-        x_set = np.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_species_years.npy')
+        x_set = np.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/x_set_pxl_buffered_balanced_nonstan_species_years.npy')
     y_set = np.load('/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/y_set_pxl_buffered_balanced_species.npy')
     EPOCH = 420
     LR = 0.00001  # learning rate, which in theory could be within the scope of parameter tuning
 else:
-    UID = 999
+    UID = 998
     x_set = torch.load('/home/j/data/x_set.pt')
     y_set = torch.load('/home/j/data/y_set.pt')
     EPOCH = 420  # the maximum amount of epochs i want to train
@@ -98,7 +98,7 @@ patience = 5 # early stopping patience; how long to wait after last time validat
 num_bands = 10 # number of different bands from Sentinel 2
 num_classes = 10 # the number of different classes that are supposed to be distinguished
 sequence_length = 200 # this is the sequence length i want to work with
-esdelta = 0.04 # early stopping delta
+esdelta = 0.02 # early stopping delta
 WINTERSTART = 300 # the start of the winter season as DOY
 WINTEREND = 70 # the end of the winter season as DOY
     
@@ -152,7 +152,10 @@ def split_data(x_set:np.ndarray, y_set:np.ndarray, seed:int) -> tuple[np.ndarray
     val_indices = indices[train_size:train_size+val_size]
     test_indices = indices[train_size+val_size:] # subset everything that is left after train and validation indices
     if PREJITTER: # apply static noise to the training data to counter spatial correlation
-        x_set = csvutils.jitter_numpy(x_set, jitter=5)
+        # find out standard deviation of the x_set
+        stdev = np.std(x_set)
+        jittervalue = 0.1
+        x_set = csvutils.jitter_numpy(x_set, spectraljitter=jittervalue, DOYjitter=5)
     train_dataset = (x_set[train_indices], y_set[train_indices])
     val_dataset = (x_set[val_indices], y_set[val_indices])
     test_dataset = (x_set[test_indices], y_set[test_indices])
@@ -169,9 +172,9 @@ def train2(model:nn.Module, train_xset:Tensor, train_yset:Tensor, batch_size:int
         batch = batch.to(device) # pass the data into the gpu [32, 305, 11] batch_size, sequence max length, num_bands
         if TSAJ:
             batch = csvutils.jitter_tensor(device, batch, spectral_jitter=0.1, DOY_jitter=5) # apply jitter to the input tensor spectral values and DOY
-        if TSARC and SEASONDOY:
+        if TSARS and SEASONDOY:
             batch = csvutils.random_sample_tensor_seasonal(batch, device=device) # apply random time series sampling to the input tensor
-        if TSARC and not SEASONDOY:
+        if TSARS and not SEASONDOY:
             batch = csvutils.random_sample_tensor_additive(batch)
         outputs = model(batch)  # applying the model
         # at this point inputs is 305,3,11. 305 [timesteps, batch_size, num_bands]
@@ -263,7 +266,7 @@ if __name__ == "__main__":
         for epoch in range(EPOCH):
             train_loss, train_acc = train2(model, train_xset, train_yset, BATCH_SIZE, epoch)
             val_loss, val_acc = validate(model)
-            if val_acc > min(val_epoch_acc):
+            if val_acc > max(val_epoch_acc):
                 torch.save(model.state_dict(), MODEL_PATH)
                 best_acc = val_acc
                 best_epoch = epoch

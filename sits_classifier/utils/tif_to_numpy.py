@@ -9,7 +9,7 @@ import torch # for loading the model and actual inference
 import rioxarray as rxr # for raster clipping
 
 import multiprocessing # for parallelization
-from sits_classifier.models.lstm import LSTMClassifier
+from deleteme.lstm import LSTMClassifier
 
 import sys # for getting object size
 from shapely.geometry import mapping
@@ -149,7 +149,7 @@ model_pth.load_state_dict(torch.load('/my_volume/bi_lstm_demo.pth',  map_locatio
 prediction = model_pth(minibatch)
 
 from lstm import LSTMClassifier
-from models.lstm import LSTMClassifier
+from deleteme.lstm import LSTMClassifier
 
 
 # model = LSTMClassifier(num_bands, input_size, hidden_size, num_layers, num_classes, bidirectional).to(device)

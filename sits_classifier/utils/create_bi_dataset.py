@@ -1,15 +1,16 @@
 import numpy as np
+import pandas as pd
 import torch
 from torch import nn, Tensor
-import sits_classifier.utils.csv_utils as csv_utils
+import csv_utils as csv_utils
 import os
 
 # # settings
 # PATH = '/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/'
-PATH = '/home/j/data/'
+PATH = '/home/j/data/BI/'
 DATA_DIR = os.path.join(PATH, 'csv_BI_reshaped/')
 LABEL_CSV = 'BI_labels_unbalanced.csv'
-LABEL_PATH = os.path.join('/home/j/data/', LABEL_CSV)
+LABEL_PATH = os.path.join('/home/j/data/BI/', LABEL_CSV)
 FINETUNING = False
 
 def numpy_to_tensor(x_data: np.ndarray, y_data: np.ndarray) -> tuple[Tensor, Tensor]:
