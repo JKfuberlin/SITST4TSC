@@ -10,9 +10,9 @@ library("doParallel")
 library("foreach")
 
 # Set Flow variables
-BUFFERANDMOVEFILES = FALSE
+BUFFERANDMOVEFILES = FALSE # Careful, this MOVES, not COPIES!
 CREATEUNBALANCEDLABELS = FALSE
-BALANCELABELSANDMOVEDATA = TRUE
+BALANCELABELSANDMOVEDATA = FALSE # Careful, this MOVES, not COPIES!
 SPECIES = TRUE
 EVERGREEN = FALSE
 CREATEGPKG = TRUE
@@ -40,10 +40,11 @@ balance_dataset <- function(data, var, seed) {  # data: input dataframe, var: ta
   return(balanced_df) # Return the balanced dataframe
 }
 
+# Careful, this MOVES, not COPIES!
 if (BUFFERANDMOVEFILES) { # use the already buffered gpkg file to move the corresponding csv files to a new folder
   cl <- makeCluster((detectCores()-2))  # Detect available cores
   ID_vector = a$ID
-  folder_path <- file.path(HDD, "data/pxl01_unbalanced_unbuffered/")  # Directory where your files are stored
+  folder_path <- file.path(HDD, "data/pxl01_unbalanced_unbuffered/")  # Directory where files are stored
   destination_dir <- file.path(HDD, "data/pxl02_unbalanced_buffered/")  # Directory where you want to move the files
   files <- list.files(folder_path)  # Get list of files in the folder
   file_ids <- as.integer(sub("\\.csv$", "", files))  # Extract IDs from filenames
@@ -63,6 +64,7 @@ if (CREATEUNBALANCEDLABELS) { # convert the BST1_BA_1 to encoded values
   # create a vector with the encoded values based on the dictionary
   code <- c(210, 310, 410, 4, 630, 710, 7, 8, 9)  # i exclude 110 to trick the positional encoding because it cannot start at 0
   # create a vector with the corresponding ranges for the "oak" and other categories
+  pine_range <- c(410:490)
   oak_range <- c(600:620)
   sycamore_range <- c(820:829)
   other_evergreen_range <- c(1, 120:199, 220:299, 320:399, 420:499)
@@ -124,8 +126,10 @@ if (BALANCELABELSANDMOVEDATA) { # balances the dataset while writing correspondi
     stopCluster(cl) # Stop parallel backend
 
     if (CREATEGPKG) { # create gpkg from balanced dataset of the species
-          b = dplyr::filter(a, ID %in% balanced_df$ID)
-          b = dplyr::select(b, c("ID","encoded"))
+          balanced_labels = data.table::fread(file.path(HDD, "data/pxl_buffered_labels_balanced_species.csv"))
+          a = sf::read_sf("/home/j/data/FE_train_3035_buffered_10m.gpkg")
+          b = dplyr::filter(a, ID %in% balanced_labels$ID)
+          b = dplyr::select(b, c("ID","Tile_ID","BST1_BA_1"))
           sf::st_write(b, file.path(HDD, "data/pxl_buffered_balanced_species.gpkg"))
         }
       }
@@ -156,4 +160,3 @@ if (BALANCELABELSANDMOVEDATA) { # balances the dataset while writing correspondi
         }
       }
 }
-

@@ -155,8 +155,8 @@ if __name__ == "__main__":
 
     if TESTBI:
         # test model:
-        test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
-        test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
+        test_x_set = torch.load('/home/j/data/BI/x_set_pxl_bi.pt')
+        test_y_set = torch.load('/home/j/data/BI/y_set_pxl_bi.pt')
         #find unique values of test_y_set
         if SEASONDOY: # if the seasonal DOY is used, the test_x_set needs to be reshaped and the last column removed
             test_x_set = test_x_set[:, :, :-1]
@@ -166,7 +166,7 @@ if __name__ == "__main__":
         test_y_set.unique()
         test_dataset = Data.TensorDataset(test_x_set, test_y_set)
         test_loader_BI = Data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=1, drop_last=False)
-        test(model, test_loader_BI, "BI", "newmodelarch_masked3")
+        test(model, test_loader_BI, "BI", "newmodelarch_masked4")
 
 
 

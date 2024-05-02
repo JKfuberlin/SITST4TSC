@@ -88,7 +88,6 @@ class TransformerClassifier(nn.Module):
         if len(input_sequence.shape) == 2:
             # Add a batch dimension if it's not present (assuming batch size of 1)
             input_sequence = input_sequence.unsqueeze(0) # 0 adds the dimension in the beginning to keep order
-        input_sequence = csvutils.remove_zero_observations(input_sequence)
         input_sequence_bands = input_sequence[:,:,0:10] # this is the input sequence without DOY
         obs_embed = self.src_embd(input_sequence_bands)  # [batch_size, seq_len, d_model] #
         # this is where the input of form [batch_size, seq_len, n_bands] is passed through the linear transformation of the function src_embd()
@@ -112,3 +111,5 @@ class TransformerClassifier(nn.Module):
         # output2 = self.fc(maxpool)
         # final shape: [batch_size, num_classes]
         return output
+    
+    

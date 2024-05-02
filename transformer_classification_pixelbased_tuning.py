@@ -154,7 +154,7 @@ def split_data(x_set:np.ndarray, y_set:np.ndarray, seed:int) -> tuple[np.ndarray
     if PREJITTER: # apply static noise to the training data to counter spatial correlation
         # find out standard deviation of the x_set
         stdev = np.std(x_set)
-        jittervalue = 0.1
+        jittervalue = 0.0001
         x_set = csvutils.jitter_numpy(x_set, spectraljitter=jittervalue, DOYjitter=5)
     train_dataset = (x_set[train_indices], y_set[train_indices])
     val_dataset = (x_set[val_indices], y_set[val_indices])
@@ -293,8 +293,8 @@ if __name__ == "__main__":
 
     if TESTBI:
         # test model:
-        test_x_set = torch.load('/home/j/data/x_set_pxl_bi.pt')
-        test_y_set = torch.load('/home/j/data/y_set_pxl_bi.pt')
+        test_x_set = torch.load('/home/j/data/BI/x_set_pxl_bi.pt')
+        test_y_set = torch.load('/home/j/data/BI/y_set_pxl_bi.pt')
         #find unique values of test_y_set
         if SEASONDOY: # if the seasonal DOY is used, the test_x_set needs to be reshaped and the last column removed
             test_x_set = test_x_set[:, :, :-1]

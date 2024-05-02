@@ -8,7 +8,7 @@ import os
 # # settings
 # PATH = '/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/'
 PATH = '/home/j/data/BI/'
-DATA_DIR = os.path.join(PATH, 'csv_BI_reshaped/')
+DATA_DIR = os.path.join(PATH, 'csv_BI_reshaped_nonstan/')
 LABEL_CSV = 'BI_labels_unbalanced.csv'
 LABEL_PATH = os.path.join('/home/j/data/BI/', LABEL_CSV)
 FINETUNING = False
@@ -31,5 +31,5 @@ if __name__ == "__main__":
     x_data, y_data = csv_utils.to_numpy_BI(DATA_DIR, labels)  # turn csv file into numpy dataset while balancing the data based on minority class in dataset
     # x_data = x_data[:, :, 1:12] # 1 - 12 subsets all bands + DOY
     x_set, y_set = numpy_to_tensor(x_data, y_data)  # turn dataset into tensor format
-    torch.save(x_set, '/home/j/data/x_set_pxl_bi.pt')
-    torch.save(y_set, '/home/j/data/y_set_pxl_bi.pt')
+    torch.save(x_set, '/home/j/data/BI/x_set_pxl_bi.pt')
+    torch.save(y_set, '/home/j/data/BI/y_set_pxl_bi.pt')

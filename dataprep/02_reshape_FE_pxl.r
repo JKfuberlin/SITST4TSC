@@ -63,7 +63,7 @@ doParallel::registerDoParallel(cl = my.cluster)
 #check if it is registered (optional)
 foreach::getDoParRegistered()
 
-STANDARDIZE = FALSE
+standardize = 1
 
 
 ################
@@ -128,9 +128,7 @@ process_file <- function(file_path) {
   d <- d %>% dplyr::mutate(DOY = lubridate::as.period(lubridate::interval(TS.origin, d$date)))
   d$DOY <- lubridate::time_length(d$DOY, unit='days')
 
-  # calculate DOY
-  d <- d %>% dplyr::mutate(DOY = yday(date), year = year(date), DOY2 = DOY + 365 * (year - 2015) + dplyr::if_else(leap_year(date) & DOY > 59, 1, 0))
-  
+  d
   # round numeric columns
   e <- d %>% dplyr::mutate_if(is.numeric, ~round(., 0))
 
@@ -144,7 +142,7 @@ process_file <- function(file_path) {
   df = e
   # Standardize selected columns
   df[, columns_to_standardize] <- lapply(df[, columns_to_standardize], as.numeric)
-  if (STANDARDIZE == TRUE) {
+  if (standardize == 1) {
     df[, columns_to_standardize] <- scale(df[, columns_to_standardize])
   } else {
      # divide by 10000
@@ -152,7 +150,7 @@ process_file <- function(file_path) {
   }
   
   # write to csv file
-  if (STANDARDIZE == TRUE) {
+  if (standardize == 1) {
     data.table::fwrite(df, file = paste0("/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl04_balanced_buffered_reshaped_standardized_species/", basename(file_path)))
 
   } else {
@@ -175,7 +173,7 @@ process_file <- function(file_path) {
 
 # read all csv 
 tic()
-csv = list.files(path = "/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl03_balanced_buffered_unshaped_species/",full.names = T, pattern = "\\.csv$") 
+csv = list.files(path = "/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl01_balanced_buffered_unshaped/",full.names = T, pattern = "\\.csv$") 
 cat('csv loaded')
 toc()
 
