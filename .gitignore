@@ -8,3 +8,4 @@ masks
 test.tif
 tiles.txt
 checkpoint.pt
+08_sits_bert_multiclass.py

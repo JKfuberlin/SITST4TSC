@@ -82,6 +82,12 @@ process_file <- function(file_path) {
 
   # Exclude rows with NA values
   d <- d[complete.cases(d), ]
+
+  # Make sure, everything is numeric beacuse of weirdness
+  d[] <- lapply(d, as.numeric)
+
+  # Filter out rows with any negative value
+  d <- d[!apply(d < 0, 1, any), ]
   
   # rename first colname to 'date'
   d <- dplyr::rename(d, 'date' = 'TRUE') # somehow the first colname is assigned "TRUE"
@@ -113,20 +119,21 @@ process_file <- function(file_path) {
 
   df = e
   # Standardize selected columns
-  df[, columns_to_standardize] <- lapply(df[, columns_to_standardize], as.numeric)
-  if (STANDARDIZE == TRUE) {
-    df[, columns_to_standardize] <- scale(df[, columns_to_standardize])
-  } else {
-     # divide by 10000
-  df[, columns_to_standardize] <- df[, columns_to_standardize] / 10000
-  }
+  # df[, columns_to_standardize] <- lapply(df[, columns_to_standardize], as.numeric)
+  # if (STANDARDIZE == TRUE) {
+  #   df[, columns_to_standardize] <- scale(df[, columns_to_standardize])
+  # } else {
+  #    # divide by 10000
+  # df[, columns_to_standardize] <- df[, columns_to_standardize] / 10000
+  # }
   
   # write to csv file
-  if (STANDARDIZE == TRUE) {
-    data.table::fwrite(df, file = paste0("/home/j/data/BI/csv_BI_reshaped/", basename(file_path)))
-  } else {
-  data.table::fwrite(df, file = paste0("/home/j/data/BI/csv_BI_reshaped_nonstan/", basename(file_path)))
-}
+#   if (STANDARDIZE == TRUE) {
+#     data.table::fwrite(df, file = paste0("/home/j/data/BI/csv_BI_reshaped/", basename(file_path)))
+#   } else {
+#   data.table::fwrite(df, file = paste0("/home/j/data/BI/csv_BI_reshaped_nonstan/", basename(file_path)))
+# }
+data.table::fwrite(df, file = paste0("/home/j/data/BI/csv_BI_reshaped/", basename(file_path)))
 }
 
 ######

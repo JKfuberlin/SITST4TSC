@@ -75,11 +75,11 @@ process_file <- function(file_path) {
   a <- data.table::fread(file_path)
   
   # remove unneeded columns
-  a <- dplyr::select(a, -c(1, 3:120)) # hardcoding, keeping only OBJECTID
+  a <- dplyr::select(a, -c(1, 3,4,5)) # hardcoding, keeping only OBJECTID
   # a2 <- dplyr::select(a, -c(X,KATEGORIE:SHAPE_STLe))
   
   # change colnames
-  # i end up with incredibly messed up column names after extraction, such as
+  # i end up with incredibly messed up column names after extraction, such as99803077186.csv
   # "mean.mean..force.FORCE.C1.L2.ard.X0059_Y0057.20150806_LEVEL2_SEN2A_BOA.tif1"
   # i need to clean up the column name because it is the base for rearranging the csv files to be turnt into tensors later on
   colnames = names(a)
@@ -98,39 +98,47 @@ process_file <- function(file_path) {
   
   a2 = a
   names(a2) = new_colnames
-  
+
   # pivot longer
   b <- tidyr::pivot_longer(a2, cols = -c(OBJECTID),
                            names_sep = "tif", # looks for tif in the column name and uses the info after (bandnumber)...
-                           names_to = c(".value", "band")) # ...to write each band value into the corresponding row containing the date 
+                           names_to = c(".value", "band")) # ...to write each band value into the corresponding row while maintaining the date information inside the column names 
   
-  # rotate df
-  c <- sjmisc::rotate_df(b, rn = T, cn = F)
+  # rotate df to merge the information from each band with the corresponding date
+  c <- sjmisc::rotate_df(b, rn = T, cn = F) # rn = T means rownames become columnnames cn means
   
   # remove first 2 rows (should only contain ID and band by now)
   d <- c %>% dplyr::slice(3:nrow(c))
 
   # Exclude rows with NA values
   d <- d[complete.cases(d), ]
+
+  # Make sure, everything is numeric beacuse of weirdness
+  d[] <- lapply(d, as.numeric)
+
+  # Filter out rows with any negative value
+  e <- d[!apply(d < 0, 1, any), ]
   
   # rename first colname to 'date'
-  d <- dplyr::rename(d, 'date' = 'TRUE') # somehow the first colname is assigned "TRUE"
+  e <- dplyr::rename(e, 'date' = 'TRUE') # somehow the first colname is assigned "TRUE"
   
   # turn date into lubridate format
-  d$date <- lubridate::ymd(d$date)
+  e$date <- lubridate::ymd(e$date)
   
   # calc number of days passed since 1-1-2015
   TS.origin <- lubridate::ymd("20150101")
   
   # calculate DOY
-  int <- lubridate::interval(TS.origin, d$date)
+  int <- lubridate::interval(TS.origin, e$date)
   per <- lubridate::as.period(int, unit = 'day')
-  d <- d %>% dplyr::mutate(DOY = lubridate::as.period(lubridate::interval(TS.origin, d$date)))
-  d$DOY <- lubridate::time_length(d$DOY, unit='days')
+  e <- e %>% dplyr::mutate(DOY = lubridate::as.period(lubridate::interval(TS.origin, e$date)))
+  e$DOY <- lubridate::time_length(e$DOY, unit='days')
 
-  d
+  # calculate DOY
+  e <- e %>% dplyr::mutate(DOY = yday(date), year = year(date), DOY2 = DOY + 365 * (year - 2015) + dplyr::if_else(leap_year(date) & DOY > 59, 1, 0))
+  
   # round numeric columns
-  e <- d %>% dplyr::mutate_if(is.numeric, ~round(., 0))
+  e <- e %>% dplyr::mutate_if(is.numeric, ~round(., 0))
 
   # drop date column
   e = e[, -1]
@@ -142,25 +150,30 @@ process_file <- function(file_path) {
   df = e
   # Standardize selected columns
   df[, columns_to_standardize] <- lapply(df[, columns_to_standardize], as.numeric)
-  if (standardize == 1) {
-    df[, columns_to_standardize] <- scale(df[, columns_to_standardize])
-  } else {
-     # divide by 10000
-  df[, columns_to_standardize] <- df[, columns_to_standardize] / 10000
-  }
+  # if (standardize == 1) {
+  #   df[, columns_to_standardize] <- scale(df[, columns_to_standardize])
+  # } else {
+  #    # divide by 10000
+  # df[, columns_to_standardize] <- df[, columns_to_standardize] / 10000
+  # }
   
   # write to csv file
-  if (standardize == 1) {
-    data.table::fwrite(df, file = paste0("/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl04_balanced_buffered_reshaped_standardized_species/", basename(file_path)))
+  # if (standardize == 1) {
+  #   data.table::fwrite(df, file = paste0("/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl04_balanced_buffered_reshaped_standardized_species/", basename(file_path)))
 
-  } else {
-  data.table::fwrite(df, file = paste0("/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl04_balanced_buffered_reshaped_nonstandardized_species/", basename(file_path)))
+  # } else {
+  # data.table::fwrite(df, file = paste0("/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl04_balanced_buffered_reshaped_nonstandardized_species/", basename(file_path)))
+  data.table::fwrite(df, file = paste0("/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl04_balanced_buffered_reshaped_species/", basename(file_path)))
 
 }
 
 
-  # write to csv file
-  }
+# Plaintext explanation of what i (try to) do:
+# original file has on col per band per timestep,so first each timestep is written into a separate row containing only the bands of said timestep
+# all NA observations are deleted at this point. After extraction the Value should be -9999 or NA, i do not replace it by 0 but delete the entire timestep
+# two separate DOYs are calculated, one that represents the absolute position within the multiyear timeseries, the other to represent the timestep within the seasonal pattern
+# standardization is essentially dropped because the reflectance values already represent percentages of reflectance at the sensor level and only need to be divided by 
+# 10.000(theoretical max value) to get floating point values which are necessary for the DL
 
 ######
 
@@ -173,7 +186,7 @@ process_file <- function(file_path) {
 
 # read all csv 
 tic()
-csv = list.files(path = "/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl01_balanced_buffered_unshaped/",full.names = T, pattern = "\\.csv$") 
+csv = list.files(path = "/media/j/d56fa91a-1ba4-4e5b-b249-8778a9b4e904/data/pxl03_balanced_buffered_unshaped_species/",full.names = T, pattern = "\\.csv$") 
 cat('csv loaded')
 toc()
 
@@ -189,65 +202,3 @@ parallel::stopCluster(cl = my.cluster)
 
 toc()
 gc()
-# 
-# file_path = csv[1]
-# 
-# # read csv file
-# a <- read.csv(file_path)
-# 
-# # remove unneeded columns
-# # a <- dplyr::select(a, -c("X","fid_2",'BST1_BA_1',"BST1_BAA_1","Name","Tile_ID","pixel_values.ID"))
-# a2 <- dplyr::select(a, -c(X,KATEGORIE:SHAPE_STLe))
-# 
-# # change colnames
-# # i end up with incredibly messed up column names after extraction, such as
-# # "mean.mean..force.FORCE.C1.L2.ard.X0059_Y0057.20150806_LEVEL2_SEN2A_BOA.tif1"
-# # i need to clean up the column name because it is the base for rearranging the csv files to be turnt into tensors later on
-# colnames = names(a2)
-# relevant_colnames = colnames[2:length(colnames)] # not changing ID
-# new_colnames = character()
-# new_colnames = c(new_colnames, "OBJECTID") # adding back ID
-# for (i in 1:length(relevant_colnames)) { # manipulating column names and adding them back
-#   this.colname = relevant_colnames[i]
-#   split_string <- strsplit(this.colname, "\\.")
-#   first.word = unlist(split_string[[1]][1]) # i need to find out the statistic metric, which can be found at the beginning of the string
-#   new.colname = paste(this.colname,first.word, sep = ".") # then i put the metric at the end
-#   new.colname  <- sub(".*?([0-9]{8}.*)", "\\1", new.colname) # i now remove everything before the date
-#   new.colname <- sub("_LEVEL2_SEN2[AB]_BOA\\.", "", new.colname) # and clean up some more
-#   new_colnames = c(new_colnames, new.colname)
-# }
-# 
-# a3 = a2
-# names(a3) = new_colnames
-# 
-# # pivot longer
-# b <- tidyr::pivot_longer(a3, cols = -c(OBJECTID),
-#                          names_sep = "tif", # looks for tif in the column name and uses the info after (bandnumber)...
-#                          names_to = c(".value", "band")) # ...to write each band value into the corresponding row containing the date
-# 
-# # rotate df
-# c <- sjmisc::rotate_df(b, rn = T, cn = F)
-# 
-# # remove first 2 rows (should only contain ID and band by now)
-# d <- c %>% dplyr::slice(3:nrow(c))
-# 
-# # rename first colname to 'date'
-# d <- dplyr::rename(d, 'date' = 'TRUE') # somehow the first colname is assigned "TRUE"
-# 
-# # turn date into lubridate format
-# d$date <- lubridate::ymd(d$date)
-# 
-# # calc number of days passed since 1-1-2015
-# TS.origin <- lubridate::ymd("20150101")
-# 
-# # calculate DOY
-# int <- lubridate::interval(TS.origin, d$date)
-# per <- lubridate::as.period(int, unit = 'day')
-# d <- d %>% dplyr::mutate(DOY = lubridate::as.period(lubridate::interval(TS.origin, d$date)))
-# d$DOY <- lubridate::time_length(d$DOY, unit='days')
-# 
-# # round numeric columns
-# e <- d %>% dplyr::mutate_if(is.numeric, ~round(., 0))
-# 
-# # write to csv file
-# write.csv(e, file = paste0("/my_volume/balanced_subset_reshape/", basename(file_path)))
